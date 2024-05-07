@@ -1,5 +1,5 @@
 use super::{Error, Result};
-use secretrs::clients::TendermintServiceClient;
+use secretrs::grpc_clients::TendermintServiceClient;
 use secretrs::proto::cosmos::base::tendermint::v1beta1::{
     AbciQueryRequest, AbciQueryResponse, GetBlockByHeightRequest, GetBlockByHeightResponse,
     GetLatestBlockRequest, GetLatestBlockResponse, GetLatestValidatorSetRequest,

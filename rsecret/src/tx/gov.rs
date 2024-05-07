@@ -3,7 +3,7 @@
 use super::{Error, Result};
 use crate::TxOptions;
 use secretrs::{
-    clients::TxServiceClient,
+    grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
         gov::v1beta1::{MsgDeposit, MsgSubmitProposal, MsgVote, MsgVoteWeighted},

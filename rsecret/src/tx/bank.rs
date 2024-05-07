@@ -4,7 +4,7 @@ use super::{Error, Result};
 use crate::TxOptions;
 use secretrs::{
     bank::{MsgMultiSend, MsgSend},
-    clients::TxServiceClient,
+    grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},

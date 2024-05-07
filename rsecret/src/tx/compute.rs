@@ -3,8 +3,8 @@
 use super::{Error, Result};
 use crate::{CreateClientOptions, TxOptions};
 use secretrs::{
-    clients::TxServiceClient,
     compute::{MsgExecuteContract, MsgInstantiateContract, MsgStoreCode},
+    grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},

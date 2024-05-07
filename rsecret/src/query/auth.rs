@@ -1,7 +1,7 @@
 use super::{Error, Result};
-use secret_sdk_proto::prost::Message;
+use prost::Message;
 use secretrs::{
-    clients::AuthQueryClient,
+    grpc_clients::AuthQueryClient,
     proto::cosmos::auth::v1beta1::{
         AddressBytesToStringRequest, AddressBytesToStringResponse, AddressStringToBytesRequest,
         AddressStringToBytesResponse, BaseAccount, ModuleAccount, Params,

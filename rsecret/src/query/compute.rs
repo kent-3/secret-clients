@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::{Error, Result};
 use crate::CreateClientOptions;
 use secretrs::{
-    clients::ComputeQueryClient,
+    grpc_clients::ComputeQueryClient,
     proto::secret::compute::v1beta1::{
         ContractCodeHistoryEntry, ContractInfo, ContractInfoWithAddress, QueryByCodeIdRequest,
         QueryByContractAddressRequest, QueryByLabelRequest, QueryCodeHashResponse,

@@ -3,7 +3,7 @@
 use super::{Error, Result};
 use crate::TxOptions;
 use secretrs::{
-    clients::TxServiceClient,
+    grpc_clients::TxServiceClient,
     proto::cosmos::{
         authz::v1beta1::{MsgExec, MsgGrant, MsgRevoke},
         base::abci::v1beta1::TxResponse,
