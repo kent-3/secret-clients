@@ -1,0 +1,16 @@
+# IbcCoreConnectionV1IdentifiedConnection
+
+## Properties
+
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**id** | Option<**String**> | connection identifier. | [optional]
+**client_id** | Option<**String**> | client associated with this connection. | [optional]
+**versions** | Option<[**Vec<crate::models::IbcVersionWhichCanBeUtilisedToDetermineEncodingsOrProtocolsForChannelsOrPacketsUtilisingThisConnectionInner>**](IBC_version_which_can_be_utilised_to_determine_encodings_or_protocols_for_channels_or_packets_utilising_this_connection_inner.md)> |  | [optional]
+**state** | Option<**String**> | current state of the connection end. | [optional][default to UninitializedUnspecified]
+**counterparty** | Option<[**crate::models::ConnectionsResponseConnectionsInnerCounterparty**](Connections_response_connections_inner_counterparty.md)> |  | [optional]
+**delay_period** | Option<**String**> | delay period associated with this connection. | [optional]
+
+[Back to Model list](../README.md#documentation-for-models) [Back to API list](../README.md#documentation-for-api-endpoints) [Back to README](../README.md)
+
+

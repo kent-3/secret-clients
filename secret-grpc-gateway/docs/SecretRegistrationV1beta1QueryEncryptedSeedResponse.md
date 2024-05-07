@@ -1,0 +1,11 @@
+# SecretRegistrationV1beta1QueryEncryptedSeedResponse
+
+## Properties
+
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**encrypted_seed** | Option<**String**> |  | [optional]
+
+[Back to Model list](../README.md#documentation-for-models) [Back to API list](../README.md#documentation-for-api-endpoints) [Back to README](../README.md)
+
+
