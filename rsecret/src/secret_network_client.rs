@@ -3,8 +3,10 @@
 use crate::{
     query::Querier,
     tx::TxSender,
-    wallet_amino::{AccountData, Algo, AminoSignResponse, AminoSigner, AminoWallet, StdSignDoc},
-    wallet_proto::Wallet,
+    wallet::{
+        wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdSignDoc},
+        wallet_proto::Wallet,
+    },
     Error, Result,
 };
 use async_trait::async_trait;

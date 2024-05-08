@@ -1,4 +1,4 @@
-use super::{secret_network_client::SignDocCamelCase, Error, Result};
+use crate::{secret_network_client::SignDocCamelCase, Result};
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -11,12 +11,17 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::{fmt, str::FromStr};
 
-pub const SECRET_COIN_TYPE: u16 = 529;
-pub const SECRET_BECH32_PREFIX: &'static str = "secret";
+const SECRET_COIN_TYPE: u16 = 529;
+const SECRET_BECH32_PREFIX: &'static str = "secret";
 
+/// Available options when creating a Wallet.
+#[derive(Debug)]
 pub struct WalletOptions {
+    /// The account index in the HD derivation path. Defaults to `0`.
     pub hd_account_index: u32,
+    /// The coin type in the HD derivation path. Defaults to Secret's `529`.
     pub coin_type: u16,
+    /// The bech32 prefix for the account's address. Defaults to `"secret"`
     pub bech32_prefix: &'static str,
 }
 
@@ -30,15 +35,31 @@ impl Default for WalletOptions {
     }
 }
 
+/// A wallet capable of signing on the legacy Amino encoding.
+///
+/// Amino encoding is still a must-use when signing with Ledger and thus still
+/// supported in the chain, but is phased out slowly.
+///
+/// In secret.js, AminoWallet is mainly used for testing and should not be used
+/// for anything else. The reason is that some Msg types don't support Amino
+/// encoding anymore and thus won't work with this wallet (and Ledger).
+/// Msgs that do support Amino encoding also must encode with Protobuf,
+/// so if a Msg is working as intended with AminoWallet, it'll also work with [`Wallet`].
+///
+/// For reference, even txs that are signed using Amino, are sent to the chain
+/// using Protobuf encoding, so inside the chain the tx is converted to Amino
+/// in order to verify the signature.
+///
+/// [`Wallet`]: crate::wallet_proto::Wallet
 pub struct AminoWallet {
     /// The mnemonic phrase used to derive this account
-    pub mnemonic: String,
+    mnemonic: String,
     /// The account index in the HD derivation path
     pub hd_account_index: u32,
     /// The coin type in the HD derivation path
     pub coin_type: u16,
     /// The secp256k1 private key that was derived from `mnemonic` + `hdAccountIndex`
-    pub private_key: SigningKey,
+    pub(super) private_key: SigningKey,
     /// The secp256k1 public key that was derived from `private_key`
     pub public_key: PublicKey,
     /// The account's secret address, derived from `public_key`
@@ -62,6 +83,9 @@ impl fmt::Debug for AminoWallet {
 }
 
 impl AminoWallet {
+    /// Import mnemonic or generate random if `None`.
+    ///
+    /// See [`WalletOptions`].
     pub fn new(mnemonic: Option<String>, options: WalletOptions) -> Result<Self> {
         // Generate a new mnemonic if not provided
         let mnemonic = if let Some(mnemonic) = mnemonic {
@@ -109,18 +133,19 @@ impl AminoWallet {
 
 #[async_trait]
 impl AminoSigner for AminoWallet {
-    /// Get the accounts associated with this wallet
-    async fn get_accounts(&self) -> Vec<AccountData> {
-        vec![AccountData {
+    /// Get the accounts associated with this wallet.
+    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
+        Ok(vec![AccountData {
             address: self.address.clone(),
             algo: Algo::Secp256k1,
             pubkey: self.public_key.to_bytes(),
-        }]
+        }])
     }
 
+    /// Signs a [StdSignDoc] using Amino encoding.
     async fn sign_amino(
         &self,
-        signer_address: String,
+        signer_address: &str,
         sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
         if signer_address != self.address {
@@ -141,7 +166,7 @@ impl AminoSigner for AminoWallet {
     }
 }
 
-/// Encodes a secp256k1 signature object
+/// Encodes a secp256k1 signature object.
 pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Result<StdSignature> {
     if signature.len() != 64 {
         return Err("Signature must be 64 bytes long".into());
@@ -153,7 +178,7 @@ pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Res
     })
 }
 
-/// Encodes a secp256k1 public key
+/// Encodes a secp256k1 public key.
 fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
     if pubkey.len() != 33 || (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
         return Err(
@@ -163,11 +188,12 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
     }
 
     Ok(Pubkey {
-        r#type: "tendermint/PubKeySecp256k1".to_string(),
-        value: BASE64_STANDARD.encode(&pubkey).into(),
+        r#type: "tendermint/PubKeySecp256k1",
+        value: BASE64_STANDARD.encode(&pubkey),
     })
 }
 
+/// An Amino encoded message.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AminoMsg {
     pub r#type: String,
@@ -177,11 +203,16 @@ pub struct AminoMsg {
 /// Response after signing with Amino.
 #[derive(Debug)]
 pub struct AminoSignResponse {
+    /// The sign_doc that was signed.
+    ///
+    /// This may be different from the input sign_doc when the signer modifies it as part of the signing process.
     pub signed: StdSignDoc,
     pub signature: StdSignature,
 }
 
-/// Document to be signed.
+/// The document to be signed.
+///
+/// See https://docs.cosmos.network/master/modules/auth/03_types.html#stdsigndoc
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StdSignDoc {
     pub chain_id: String,
@@ -205,19 +236,27 @@ pub struct StdFee {
 #[derive(Debug)]
 pub struct StdSignature {
     pub pub_key: Pubkey,
-    // pub pubKey: Pubkey, TODO:
+    // TODO: I guess cosmjs/Keplr uses camelCase, so we need a way to handle that?
+    // pub pubKey: Pubkey
     pub signature: String,
 }
 
 /// Public key type.
+///
+/// Possible types include:
+/// - "tendermint/PubKeySecp256k1"
+/// - "tendermint/PubKeyEd25519"
+/// - "tendermint/PubKeySr25519
 #[derive(Debug, Clone)]
 pub struct Pubkey {
-    pub r#type: String, // Flexible type, using String to avoid enum complexity.
-    pub value: Vec<u8>,
+    pub r#type: &'static str,
+    // TODO: is this supposed to be a string or bytes?
+    pub value: String,
 }
 
 /// Algorithm types used for signing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(unused)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Algo {
     Secp256k1,
     Ed25519,
@@ -232,8 +271,8 @@ pub struct AccountData {
     pub pubkey: Vec<u8>,
 }
 
-/// Sorts a JSON object by its keys recursively
-pub fn sort_object(value: &Value) -> Value {
+/// Sorts a JSON object by its keys recursively.
+pub(crate) fn sort_object(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let mut sorted_map = Map::new();
@@ -253,7 +292,7 @@ fn json_sorted_stringify(value: &Value) -> String {
 }
 
 /// Serializes a `StdSignDoc` object to a sorted and UTF-8 encoded JSON string
-pub fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
+pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
     let value = serde_json::to_value(sign_doc).unwrap();
     json_sorted_stringify(&value).as_bytes().to_vec()
 }
@@ -275,7 +314,7 @@ pub struct DirectSignResponse {
 
 #[async_trait]
 pub trait DirectSigner {
-    async fn get_accounts(&self) -> Vec<AccountData>;
+    async fn get_accounts(&self) -> Result<Vec<AccountData>>;
     async fn sign_direct(
         &self,
         signer_address: &str,
@@ -285,21 +324,36 @@ pub trait DirectSigner {
 
 #[async_trait]
 pub trait AminoSigner {
-    async fn get_accounts(&self) -> Vec<AccountData>;
+    /// Get AccountData array from wallet. Rejects if not enabled.
+    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
+        // TODO: should these return Errors or panic?
+        Err("not enabled".into())
+    }
+
+    /// Get [SignMode] for signing a tx.
     async fn get_sign_mode(&self) -> Result<SignMode> {
+        // TODO: should these return Errors or panic?
         unimplemented!()
     }
+
+    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
+    ///
+    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
+    /// return the doc that was signed in the response.
     async fn sign_amino(
         &self,
-        signer_address: String,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse>;
+        _signer_address: &str,
+        _sign_doc: StdSignDoc,
+    ) -> Result<AminoSignResponse> {
+        Err("not enabled".into())
+    }
+
     async fn sign_permit(
         &self,
-        signer_address: &str,
-        sign_doc: &StdSignDoc,
+        _signer_address: &str,
+        _sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
-        unimplemented!()
+        Err("not enabled".into())
     }
 }
 

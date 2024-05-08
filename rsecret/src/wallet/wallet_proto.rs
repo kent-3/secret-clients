@@ -1,12 +1,19 @@
 #![allow(unused)]
 
-use crate::{
-    wallet_amino::{encode_secp256k1_signature, AccountData, Algo, AminoWallet, StdSignature},
-    Result,
+use super::wallet_amino::{
+    encode_secp256k1_signature, AccountData, Algo, AminoWallet, StdSignature,
 };
+use crate::Result;
 use secretrs::tx::SignDoc;
 use sha2::{Digest, Sha256};
 
+/**
+Wallet is a wallet capable of signing on transactions.
+
+ `Wallet` can just extend `AminoWallet` and be a valid `DirectSigner` because
+ `SecretNetworkClient` checks first for the existence of `signDirect` function
+ before checking for `signAmino` function.
+*/
 #[derive(Debug)]
 pub struct Wallet(AminoWallet);
 
