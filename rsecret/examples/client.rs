@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
         chain_id: CHAIN_ID,
         ..Default::default()
     };
-    let mut secretrs = SecretNetworkClient::connect(options).await?;
+    let secretrs = SecretNetworkClient::connect(options).await?;
     // println!("{:#?}", secretrs);
 
     let foo = secretrs.query.auth.params().await?;

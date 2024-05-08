@@ -5,7 +5,7 @@ mod query;
 mod secret_network_client;
 mod tx;
 mod wallet_amino;
-mod wallet_direct;
+mod wallet_proto;
 
 // pub use account::Wallet;
 pub use query::Querier;

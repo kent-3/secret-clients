@@ -4,7 +4,7 @@ use crate::{
     query::Querier,
     tx::TxSender,
     wallet_amino::{AccountData, Algo, AminoSignResponse, AminoSigner, AminoWallet, StdSignDoc},
-    wallet_direct::Wallet,
+    wallet_proto::Wallet,
     Error, Result,
 };
 use async_trait::async_trait;
