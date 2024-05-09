@@ -1,11 +1,10 @@
 #![allow(unused)]
 
-use crate::wallet::wallet_amino::StdFee;
 use crate::{
     query::Querier,
     tx::TxSender,
     wallet::{
-        wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdSignDoc},
+        wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdFee, StdSignDoc},
         wallet_proto::Wallet,
     },
     Error, Result,
@@ -15,11 +14,14 @@ use secretrs::{
     proto::{
         cosmos::{
             base::abci::v1beta1::{AbciMessageLog, MsgData, TxResponse as TxResponseProto},
-            tx::v1beta1::{
-                AuthInfo, BroadcastMode, SignDoc, SignerInfo, Tx as TxPb, TxBody, TxRaw,
-            },
+            tx::v1beta1::{BroadcastMode, OrderBy, SimulateResponse, TxRaw},
         },
         tendermint::abci::Event,
+    },
+    query::PageRequest,
+    tx::{
+        AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
+        SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
     EncryptionUtils,
 };
@@ -164,7 +166,7 @@ pub trait ReadonlySigner: AminoSigner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TxResponse {
     /// Block height in which the tx was committed on-chain
     pub height: u64,
@@ -197,7 +199,7 @@ pub struct TxResponse {
     /// Return value (if there's any) for each input message
     pub data: Vec<Vec<u8>>,
     /// Decoded transaction input.
-    pub tx: TxPb,
+    pub tx: Tx,
     /// Amount of gas that was actually used by the transaction.
     pub gas_used: u64,
     /// Gas limit that was originally set by the transaction.
@@ -206,16 +208,15 @@ pub struct TxResponse {
     pub ibc_responses: Vec<IbcResponse>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct JsonLogEntry {
     pub msg_index: u32,
     pub events: Vec<Event>,
 }
 
-#[derive(Debug, Clone)]
-pub struct JsonLog(pub Vec<JsonLogEntry>);
+pub type JsonLog = Vec<JsonLogEntry>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ArrayLogEntry {
     pub msg: u32,
     pub r#type: String,
@@ -223,16 +224,15 @@ pub struct ArrayLogEntry {
     pub value: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct ArrayLog(pub Vec<ArrayLogEntry>);
+pub type ArrayLog = Vec<ArrayLogEntry>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum IbcResponseType {
     Ack,
     Timeout,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct IbcResponse {
     pub r#type: IbcResponseType,
     pub tx: TxResponse,
@@ -326,6 +326,7 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
+    /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
     async fn get_tx(
         &self,
         hash: &str,
@@ -342,7 +343,35 @@ where
         todo!()
     }
 
-    async fn txs_query(&self) {
+    /// To tell which events you want, you need to provide a query. query is a string, which has a form: "condition AND condition ..." (no OR at the moment).
+    ///
+    /// condition has a form: "key operation operand". key is a string with a restricted set of possible symbols (\t\n\r\()"'=>< are not allowed).
+    ///
+    /// operation can be "=", "<", "<=", ">", ">=", "CONTAINS" AND "EXISTS". operand can be a string (escaped with single quotes), number, date or time.
+    ///
+    /// Examples:
+    /// - `tx.hash='XYZ'` # single transaction
+    /// - `tx.height=5` # all txs of the fifth block
+    /// - `create_validator.validator='ABC'` # tx where validator ABC was created
+    ///
+    /// Tendermint provides a few predefined keys: `tm.event`, `tx.hash` and `tx.height`. You can provide additional event keys that were emitted during the transaction.
+    ///
+    /// All events are indexed by a composite key of the form `{eventType}.{evenAttrKey}`.
+    ///
+    /// Multiple event types with duplicate keys are allowed and are meant to categorize unique and distinct events.
+    ///
+    /// To create a query for txs where AddrA transferred funds: `transfer.sender='AddrA'`.
+    ///
+    /// NOTE: Starting from Cosmos SDK v0.46+, expressions cannot contain spaces anymore:
+    /// - Legal: `a.b='c'`
+    /// - Illegal: `a.b = 'c'`
+    async fn txs_query(
+        &self,
+        query: String,
+        ibc_tx_options: IbcTxOptions,
+        pagination: PageRequest,
+        order_by: OrderBy,
+    ) -> Result<Vec<TxResponse>> {
         todo!()
     }
 
@@ -386,27 +415,63 @@ where
         todo!()
     }
 
-    async fn broadcast_tx(&self) {
+    /// Broadcasts a signed transaction to the network and monitors its inclusion in a block.
+    ///
+    /// If broadcasting is rejected by the node for some reason (e.g. because of a CheckTx failure),
+    /// an error is thrown.
+    ///
+    /// If the transaction is not included in a block before the provided timeout, this errors with a `TimeoutError`.
+    ///
+    /// If the transaction is included in a block, a [`TxResponse`] is returned. The caller then
+    /// usually needs to check for execution success or failure.
+    async fn broadcast_tx<M: Msg>(
+        &self,
+        tx_bytes: Vec<u8>,
+        timeout_ms: u32,
+        check_interval_ms: u32,
+        mode: BroadcastMode,
+        wait_for_commit: bool,
+        ibc_tx_options: IbcTxOptions,
+    ) -> Result<TxResponse> {
         todo!()
     }
 
-    async fn sign_tx(&self) {
+    /// Prepare and sign an array of messages as a transaction.
+    async fn sign_tx<M: Msg>(&self, messages: Vec<M>, tx_options: TxOptions) -> Result<Vec<u8>> {
         todo!()
     }
 
-    async fn broadcast_signed_tx(&self) {
+    /// Broadcast a signed transaction.
+    async fn broadcast_signed_tx(
+        &self,
+        tx_bytes: Vec<u8>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponse> {
         todo!()
     }
 
-    async fn prepare_and_sign(&self) {
+    async fn prepare_and_sign<M: Msg>(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+        simulate: bool,
+    ) -> Result<Vec<u8>> {
         todo!()
     }
 
-    async fn sign_and_broadcast(&self) {
+    async fn sign_and_broadcast<M: Msg>(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponse> {
         todo!()
     }
 
-    async fn simulate(&self) {
+    async fn simulate<M: Msg>(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+    ) -> Result<SimulateResponse> {
         todo!()
     }
 
