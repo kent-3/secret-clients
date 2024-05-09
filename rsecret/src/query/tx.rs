@@ -38,8 +38,9 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    pub async fn simulate(&mut self, request: SimulateRequest) -> Result<SimulateResponse> {
+    pub async fn simulate(&self, request: SimulateRequest) -> Result<SimulateResponse> {
         self.inner
+            .clone()
             .simulate(request)
             .await
             .map_err(Into::into)
@@ -51,34 +52,36 @@ where
     }
 
     /// `hash` is the tx hash to query, encoded as a hex string.
-    pub async fn get_tx(&mut self, hash: impl Into<String>) -> Result<GetTxResponse> {
+    pub async fn get_tx(&self, hash: impl Into<String>) -> Result<GetTxResponse> {
         let hash = hash.into();
         let request = GetTxRequest { hash };
         self.inner
+            .clone()
             .get_tx(request)
             .await
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
 
+        // TODO: Decide on response type...
         // A GetTxResponse contains:
         // * Option<Tx>
         // * Option<TxResponse>
+        // The client seems to want the TxResponse, which seems to contain the Tx bytes anyway...
     }
-    pub async fn get_txs_event(
-        &mut self,
-        request: GetTxsEventRequest,
-    ) -> Result<GetTxsEventResponse> {
+    pub async fn get_txs_event(&self, request: GetTxsEventRequest) -> Result<GetTxsEventResponse> {
         self.inner
+            .clone()
             .get_txs_event(request)
             .await
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
     }
     pub async fn get_block_with_txs(
-        &mut self,
+        &self,
         request: GetBlockWithTxsRequest,
     ) -> Result<GetBlockWithTxsResponse> {
         self.inner
+            .clone()
             .get_block_with_txs(request)
             .await
             .map_err(Into::into)
