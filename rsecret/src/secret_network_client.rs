@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::wallet::wallet_amino::StdFee;
 use crate::{
     query::Querier,
     tx::TxSender,
@@ -12,8 +13,11 @@ use crate::{
 use async_trait::async_trait;
 use secretrs::{
     proto::{
-        cosmos::tx::v1beta1::{
-            AuthInfo, BroadcastMode, SignDoc, SignerInfo, Tx as TxPb, TxBody, TxRaw,
+        cosmos::{
+            base::abci::v1beta1::{AbciMessageLog, MsgData, TxResponse as TxResponseProto},
+            tx::v1beta1::{
+                AuthInfo, BroadcastMode, SignDoc, SignerInfo, Tx as TxPb, TxBody, TxRaw,
+            },
         },
         tendermint::abci::Event,
     },
@@ -30,7 +34,7 @@ pub struct CreateClientOptions {
     /// The chain-id used in encryption code & when signing transactions.
     pub chain_id: &'static str,
     /// An optional wallet for signing transactions & permits. If `wallet` is supplied,
-    /// `wallet_address` & `chain_id` must also be supplied.
+    /// `wallet_address` must also be supplied.
     pub wallet: Option<Wallet>,
     /// The specific account address in the wallet that is permitted to sign transactions & permits.
     pub wallet_address: Option<String>,
@@ -303,7 +307,7 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
             wallet,
             address,
             chain_id,
-            encryption_utils, // tx_options,
+            encryption_utils,
         })
     }
 
@@ -314,23 +318,173 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
     // }
 }
 
-/// A signer capable of signing transactions.
-/// Placeholder for actual implementation details.
-pub trait Signer {
-    // Define methods relevant to the Signer trait here
-    fn sign();
-}
+impl<T> SecretNetworkClient<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T: Clone,
+{
+    async fn get_tx(
+        &self,
+        hash: &str,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<Option<TxResponse>> {
+        use secretrs::proto::cosmos::tx::v1beta1::GetTxResponse;
+        let GetTxResponse { tx_response, .. } = self.query.tx.get_tx(hash).await?;
 
-/// Placeholder for actual implementation details.
-pub trait DirectSigner: Signer {
-    fn sign_direct();
-}
+        // first we get back the proto TxResponse
+        let tx_response = tx_response.unwrap();
+        // then we process it into to our local TxResponse type
+        let tx_response = self.decode_tx_response(tx_response)?;
 
-impl Signer for Wallet {
-    fn sign() {
+        todo!()
+    }
+
+    async fn txs_query(&self) {
+        todo!()
+    }
+
+    async fn wait_for_ibc_response(&self) {
+        todo!()
+    }
+
+    fn decode_tx_responses(&self) {
+        todo!()
+    }
+
+    fn decode_tx_response(&self, tx_response: TxResponseProto) -> Result<TxResponse> {
+        // TODO: Produce json_log and array_log from raw_log.
+        let json_log = todo!();
+        let array_log = todo!();
+
+        // TODO: Process events, data, etc. Try to decrypt any messages.
+        // Convert from protobuf types to more meaningful types where applicable.
+        let events = tx_response.events;
+        let data = tx_response.data;
+        let tx = tx_response.tx;
+        let ibc_responses = todo!();
+
+        let tx_response = TxResponse {
+            height: tx_response.height as u64,
+            timestamp: tx_response.timestamp,
+            transaction_hash: tx_response.txhash.to_uppercase(),
+            code: tx_response.code,
+            codespace: tx_response.codespace,
+            info: tx_response.info,
+            raw_log: tx_response.raw_log,
+            json_log: todo!(),
+            array_log: todo!(),
+            events: todo!(),
+            data: todo!(),
+            tx: todo!(),
+            gas_used: tx_response.gas_used as u64,
+            gas_wanted: tx_response.gas_wanted as u64,
+            ibc_responses: todo!(),
+        };
+        todo!()
+    }
+
+    async fn broadcast_tx(&self) {
+        todo!()
+    }
+
+    async fn sign_tx(&self) {
+        todo!()
+    }
+
+    async fn broadcast_signed_tx(&self) {
+        todo!()
+    }
+
+    async fn prepare_and_sign(&self) {
+        todo!()
+    }
+
+    async fn sign_and_broadcast(&self) {
+        todo!()
+    }
+
+    async fn simulate(&self) {
+        todo!()
+    }
+
+    /// Signs a transaction.
+    ///
+    /// Gets account number and sequence from the API, creates a sign doc, creates a single signature, and assembles the signed transaction.
+    /// The sign mode (SIGN_MODE_DIRECT or SIGN_MODE_LEGACY_AMINO_JSON) is determined by this client's signer.
+    ///
+    /// You can pass signer data (account number, sequence and chain ID) explicitly instead of querying them
+    /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
+    async fn sign(
+        // TODO: define a Msg type
+        // messages: Vec<Msg>,
+        fee: StdFee,
+        memo: String,
+        explicit_signer_data: SignerData,
+        simulate: bool,
+    ) -> Result<TxRaw> {
+        todo!()
+    }
+
+    async fn sign_amino(&self) {
+        todo!()
+    }
+
+    async fn populate_code_hash(&self) {
+        todo!()
+    }
+
+    async fn encode_tx(&self) {
+        todo!()
+    }
+
+    async fn sign_direct(&self) {
         todo!()
     }
 }
+
+// TODO: we needsome generic 'Msg' type to be used in all these methods.
+// I think one exists in cosmrs... but that probably won't have a to_amino method
+//
+// pub struct ProtoMsg {
+//     type_url: String,
+//     // value is used in x/compute
+//     value: Vec<u8>,
+// }
+//
+// pub trait ProtoMsg {
+//     async fn encode(&self) -> Result<Vec<u8>>;
+// }
+//
+// pub struct AminoMsg {
+//     r#type: String,
+//     value: Vec<u8>,
+// }
+//
+// pub trait Msg {
+//     fn to_proto(utils: EncryptionUtils) -> Result<ProtoMsg>;
+//     fn to_amino(utils: EncryptionUtils) -> Result<AminoMsg>;
+// }
+
+// TODO: work out traits related to signing
+//
+// /// A signer capable of signing transactions.
+// pub trait Signer {
+//     // Define methods relevant to the Signer trait here
+//     fn sign();
+// }
+//
+// pub trait DirectSigner: Signer {
+//     fn sign_direct();
+// }
+//
+// impl Signer for Wallet {
+//     fn sign() {
+//         todo!()
+//     }
+// }
 
 /// SignDoc is the type used for generating sign bytes for SIGN_MODE_DIRECT.
 #[derive(Debug, Clone)]
