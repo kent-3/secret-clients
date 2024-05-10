@@ -16,17 +16,17 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
     let secretrs = SecretNetworkClient::connect(options).await?;
-    // println!("{:#?}", secretrs);
-    println!("{}", "SecretNetworkClient created".bright_cyan().bold());
+    println!(" {}", "SecretNetworkClient created".blue().bold());
+    println!("{:#?}", secretrs.blue());
 
     let foo = secretrs
         .get_tx(
-            "95B29C83743756E7272C6F6117ADA63DE2E8B5C1434A6EEF994E167EE34EB050",
-            // "CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6",
+            // "95B29C83743756E7272C6F6117ADA63DE2E8B5C1434A6EEF994E167EE34EB050",
+            "CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6",
             None,
         )
         .await?;
-    println!("{:#?}", foo.unwrap().green());
+    // println!("{:#?}", foo.unwrap().green());
 
     // let foo = secretrs.query.auth.params().await?;
     // println!("{:?}", foo);

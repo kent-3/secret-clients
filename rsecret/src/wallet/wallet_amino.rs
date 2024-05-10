@@ -357,7 +357,7 @@ pub trait AminoSigner {
     }
 }
 
-enum Signer {
-    Amino(Box<dyn AminoSigner + Sync>),
-    Direct(Box<dyn DirectSigner + Sync>),
-}
+// enum Signer {
+//     Amino(Box<dyn AminoSigner + Sync>),
+//     Direct(Box<dyn DirectSigner + Sync>),
+// }

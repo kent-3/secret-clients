@@ -452,6 +452,7 @@ where
             return Err("missing field: 'tx'".into());
         };
 
+        debug!("processing tx...");
         // We process `tx` first to extract the nonces from the original Tx messages
         let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
@@ -459,35 +460,38 @@ where
             // Check if the message needs decryption
             match any.type_url.as_str() {
                 "/secret.compute.v1beta1.MsgInstantiateContract" => {
+                    debug!("found an encrypted message!");
                     let mut msg = any.to_msg::<MsgInstantiateContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                        // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
+
                         *any = Any::from_msg::<MsgInstantiateContract>(&msg)?
                     }
+                    debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgExecuteContract" => {
+                    debug!("found an encrypted message!");
                     let mut msg = any.to_msg::<MsgExecuteContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
-                        // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
-                        //hopefully these bytes are utf-8 string of valid JSON
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
-                        debug!("decryption success! {:#?}", msg.msg);
 
                         *any = Any::from_msg::<MsgExecuteContract>(&msg)?
                     }
                     debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgMigrateContract" => {
+                    debug!("found an encrypted message!");
                     let mut msg = any.to_msg::<MsgMigrateContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
@@ -496,15 +500,20 @@ where
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
+
                         *any = Any::from_msg::<MsgMigrateContract>(&msg)?
                     }
+                    debug!("unable to decrypt... oh well!");
                 }
                 // If the message is not of type MsgInstantiateContract, MsgExecuteContract, or
                 // MsgMigrateContract, leave it unchanged. It doesn't require any decryption.
-                _ => {}
+                _ => {
+                    debug!("no encrypted messages here!");
+                }
             };
         }
 
+        debug!("processing data...");
         let mut data =
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
@@ -517,82 +526,62 @@ where
 
         #[allow(deprecated)]
         for (msg_index, msg_data) in data.data.iter_mut().enumerate() {
-            // Check if the message needs decryption
+            // Check if the message needs decryption (has an associated nonce from earlier)
             if let Some(nonce) = nonces.get(&(msg_index as u16)) {
                 match msg_data.msg_type.as_str() {
                     // if the message was a MsgInstantiateContract, then the data is in the form of
                     // MsgInstantiateContractResponse. same goes for Execute and Migrate.
                     "/secret.compute.v1beta1.MsgInstantiateContract" => {
+                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(plaintext_bytes) =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)
-                        {
-                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
+                        if let Ok(bytes) = self.encryption_utils.decrypt(&nonce, &decoded.data) {
+                            let msg_type =
+                                "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
+                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            decoded.data = data;
-
-                            *msg_data = MsgData {
-                                msg_type: "/secret.compute.v1beta1.MsgInstantiateContract"
-                                    .to_string(),
-                                data: decoded.data,
-                            }
+                            *msg_data = MsgData { msg_type, data }
                         }
+                        debug!("unable to decrypt... oh well!");
                     }
                     "/secret.compute.v1beta1.MsgExecuteContract" => {
+                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(plaintext_bytes) =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)
-                        {
-                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
+                        if let Ok(bytes) = self.encryption_utils.decrypt(&nonce, &decoded.data) {
+                            let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
+                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            decoded.data = data;
-
-                            *msg_data = MsgData {
-                                msg_type: "/secret.compute.v1beta1.MsgExecuteContract".to_string(),
-                                data: decoded.data,
-                            }
+                            *msg_data = MsgData { msg_type, data }
                         }
                         debug!("unable to decrypt... oh well!");
                     }
                     "/secret.compute.v1beta1.MsgMigrateContract" => {
+                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
+                        if let Ok(bytes) = self.encryption_utils.decrypt(&nonce, &decoded.data) {
+                            let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
+                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                        if let Ok(plaintext_bytes) =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)
-                        {
-                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
-
-                            decoded.data = data;
-
-                            *msg_data = MsgData {
-                                msg_type: "/secret.compute.v1beta1.MsgMigrateContract".to_string(),
-                                data: decoded.data,
-                            }
+                            *msg_data = MsgData { msg_type, data }
                         }
+                        debug!("unable to decrypt... oh well!");
                     }
-                    // If the message is not of type MsgInstantiateContractResponse,
-                    // MsgExecuteContractResponse, or MsgMigrateContractResponse,
-                    // leave it unchanged. It doesn't require any decryption.
+                    // If the message is not of type MsgInstantiateContract MsgExecuteContract,
+                    // or MsgMigrateContract, leave it unchanged. It doesn't require any decryption.
                     _ => {
-                        debug!("no encrypted messages here!")
+                        debug!("no encrypted messages here!");
                     }
                 };
             }
         }
-
         #[allow(deprecated)]
         let data = data.data;
 
-        // TODO:
-        // * Produce json_log and array_log from raw_log
+        // TODO: I am not sure if we need json_log or array_log, considering we have the typed "logs"
 
         let mut json_log_raw = JsonLogRaw::default();
         let mut json_log = JsonLog::default();
@@ -634,6 +623,7 @@ where
         let array_log = None;
         let ibc_responses = None;
 
+        debug!("processing events...");
         let events = tx_response
             .events
             .into_iter()
