@@ -377,9 +377,8 @@ where
         order_by: OrderBy,
     ) -> Result<Option<Vec<TxResponse>>> {
         let events: Vec<String> = query.split(" AND ").map(|q| q.trim().to_string()).collect();
-        debug!("{events:?}");
+        debug!("events query: {events:?}");
         let order_by = order_by.into();
-        debug!("{order_by:?}");
 
         let get_txs_event_request = GetTxsEventRequest {
             events,
@@ -391,6 +390,7 @@ where
         };
         let get_txs_event_response = self.query.tx.get_txs_event(get_txs_event_request).await?;
 
+        // TODO: work out pagination handling
         if let Some(pagination) = get_txs_event_response.pagination {
             debug!("not sure what to do about pagination yet");
         };
@@ -564,6 +564,9 @@ where
         #[allow(deprecated)]
         let data = data.data;
 
+        // TODO: Process, decrypt the logs!
+        let logs = tx_response.logs;
+
         let ibc_responses = None;
 
         debug!("processing events...");
@@ -581,7 +584,7 @@ where
             codespace: tx_response.codespace,
             data,
             raw_log: tx_response.raw_log,
-            logs: tx_response.logs,
+            logs,
             ibc_responses,
             info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
