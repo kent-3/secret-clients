@@ -193,7 +193,7 @@ pub struct TxResponse {
     /// Transaction execution error code. 0 on success.
     pub code: u32,
     /// Return value (if there's any) for each input message
-    pub data: Vec<Any>,
+    pub data: Vec<MsgData>,
     /// The output of the application's logger (raw string). May be non-deterministic.
     ///
     /// If code != 0, rawLog contains the error.
@@ -311,7 +311,7 @@ where
     pub url: &'static str,
     pub query: Querier<T>,
     pub tx: TxSender<T>,
-    pub wallet: Option<Wallet>, // TODO
+    pub wallet: Option<Wallet>,
     pub address: String,
     pub chain_id: &'static str,
     pub encryption_utils: EncryptionUtils,
@@ -377,18 +377,10 @@ where
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<Option<TxResponse>> {
         // TODO: check that get_tx() handles the "tx not found" error
-
-        // first we get back the proto TxResponse
-        let GetTxResponse {
-            tx_response: maybe_tx_response,
-            ..
-        } = self.query.tx.get_tx(hash).await?;
-
-        let Some(tx_response) = maybe_tx_response else {
+        let get_tx_response = self.query.tx.get_tx(hash).await?;
+        let Some(tx_response) = get_tx_response.tx_response else {
             return Ok(None);
         };
-
-        // then we process it into to our local TxResponse type
         let tx_response = self.decode_tx_response(tx_response, ibc_tx_options)?;
 
         Ok(Some(tx_response))
@@ -430,8 +422,8 @@ where
         &self,
         packet_sequence: &str,
         packet_src_channel: &str,
-        // type: "ack" | "timeout",
-        // ibc_tx_options: ExplicitIbcTxOptions,
+        r#type: IbcResponseType,
+        ibc_tx_options: IbcTxOptions,
         // is_done_object: { isDone: boolean },
     ) -> Result<IbcResponse> {
         todo!()
@@ -459,6 +451,8 @@ where
         let Some(any) = tx_response.tx else {
             return Err("missing field: 'tx'".into());
         };
+
+        // We process `tx` first to extract the nonces from the original Tx messages
         let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
         for (msg_index, any) in tx.body.messages.iter_mut().enumerate() {
@@ -511,63 +505,15 @@ where
             };
         }
 
-        // TODO:
-        // * Produce json_log and array_log from raw_log
-
-        let raw_log = tx_response.raw_log;
-        let mut json_log_raw = JsonLogRaw::default();
-        let mut json_log = JsonLog::default();
-        let mut array_log = ArrayLog::default();
-
-        if tx_response.code == 0 && raw_log != "" {
-            // this mess takes the array of objects containing "events"
-            // and adds another field "msg_index" to them.
-            //
-            // See https://github.com/cosmos/cosmos-sdk/pull/11147
-            //
-            // Ex:
-            // [
-            //   {
-            //     "msg_index": 0  <--- ADDED FIELD
-            //     "events": [
-            //       {
-            //         "type":"message",
-            //         "attributes":[
-            //           {"key":"action","value":"/ibc.core.client.v1.MsgUpdateClient"},
-            //           {"key":"module","value":"ibc_client"}
-            //         ]
-            //       }
-            //     ]
-            //   }
-            // ]
-            json_log_raw = serde_json::from_str(&raw_log)?;
-            json_log = json_log_raw
-                .into_iter()
-                .enumerate()
-                .map(|(msg_index, entry)| JsonLogEntry {
-                    msg_index: msg_index as u16,
-                    events: entry.events,
-                })
-                .collect();
-        }
-
-        let logs = tx_response.logs;
-
-        let events = tx_response
-            .events
-            .into_iter()
-            .map(|event| Ok(event.try_into()?))
-            .collect::<Result<Vec<Event>>>()?;
-
         let mut data =
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
-        // NOTE:
-        // `TxMsgData` has two fields: data: Vec<MsgData> and msg_responses: Vec<Any>.
+        // NOTE: This part is confusing!
+        // `TxMsgData` has two fields: `data: Vec<MsgData>` and `msg_responses: Vec<Any>`.
         //     * `data` was deprecated in v0.46, but secret is currently v0.45
         //     * `msg_responnses` is currently empty
-        // `MsgData` is like a pseudo-Any. It has two fields: `msg_type` and `data`.
-        //     * `msg_type` is the type of message that `data` is the response to
+        // `MsgData` is like a pseudo-Any. It has two fields: `msg_type: String` and `data: Vec<u8>`.
+        //     * `msg_type` is the type of message that `data` is the response for
 
         #[allow(deprecated)]
         for (msg_index, msg_data) in data.data.iter_mut().enumerate() {
@@ -642,19 +588,70 @@ where
             }
         }
 
-        // let ibc_responses = todo!();
+        #[allow(deprecated)]
+        let data = data.data;
 
+        // TODO:
+        // * Produce json_log and array_log from raw_log
+
+        let mut json_log_raw = JsonLogRaw::default();
+        let mut json_log = JsonLog::default();
+        let mut array_log = ArrayLog::default();
+
+        if tx_response.code == 0 && tx_response.raw_log != "" {
+            // this mess takes the array of objects containing "events"
+            // and adds another field "msg_index" to them.
+            //
+            // See https://github.com/cosmos/cosmos-sdk/pull/11147
+            //
+            // Ex:
+            // [
+            //   {
+            //     "msg_index": 0  <--- ADDED FIELD
+            //     "events": [
+            //       {
+            //         "type":"message",
+            //         "attributes":[
+            //           {"key":"action","value":"/ibc.core.client.v1.MsgUpdateClient"},
+            //           {"key":"module","value":"ibc_client"}
+            //         ]
+            //       }
+            //     ]
+            //   }
+            // ]
+            json_log_raw = serde_json::from_str(&tx_response.raw_log)?;
+            json_log = json_log_raw
+                .into_iter()
+                .enumerate()
+                .map(|(msg_index, entry)| JsonLogEntry {
+                    msg_index: msg_index as u16,
+                    events: entry.events,
+                })
+                .collect();
+        }
+
+        let json_log = None;
+        let array_log = None;
+        let ibc_responses = None;
+
+        let events = tx_response
+            .events
+            .into_iter()
+            .map(|event| Ok(event.try_into()?))
+            .collect::<Result<Vec<Event>>>()?;
+
+        // The fields with shorthand struct initialization are the ones we modified
         Ok(TxResponse {
             height: tx_response.height as u64,
             txhash: tx_response.txhash.to_uppercase(),
             code: tx_response.code,
             codespace: tx_response.codespace,
-            data: data.msg_responses,
-            raw_log,
-            logs,
-            json_log: None,
-            array_log: None,
-            ibc_responses: None,
+            data,
+            raw_log: tx_response.raw_log,
+            logs: tx_response.logs,
+            json_log,
+            array_log,
+            ibc_responses,
             info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
             gas_used: tx_response.gas_used as u64,
