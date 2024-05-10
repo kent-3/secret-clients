@@ -181,7 +181,6 @@ pub trait ReadonlySigner: AminoSigner {
     }
 }
 
-// TODO: I am not sure if we need json_log or array_log, considering we have the typed "logs"
 #[derive(Debug)]
 pub struct TxResponse {
     /// Block height in which the tx was committed on-chain
@@ -197,19 +196,14 @@ pub struct TxResponse {
     /// The output of the application's logger (raw string). May be non-deterministic.
     ///
     /// If code != 0, rawLog contains the error.
-    /// If code = 0 you'll probably want to use `jsonLog` or `arrayLog`.
+    /// If code = 0, see `logs` instead.
     /// Values are not decrypted.
     pub raw_log: String,
     /// The output of the application's logger (typed). May be non-deterministic.
+    /// Values are decrypted when possible.
     pub logs: Vec<AbciMessageLog>,
-
-    /// If code = 0, `jsonLog = serde_json::from_str(raw_log)`. Values are decrypted if possible.
-    pub json_log: Option<JsonLog>,
-    /// If code = 0, `array_log` is a flattened `json_log`. Values are decrypted if possible.
-    pub array_log: Option<ArrayLog>,
     /// If code = 0 and the tx resulted in sending IBC packets, `ibc_ack_txs` is a list of IBC acknowledgement or timeout transactions which signal whether the original IBC packet was accepted, rejected, or timed-out on the receiving chain.
     pub ibc_responses: Option<Vec<IbcResponse>>,
-
     /// Additional information. May be non-deterministic.
     pub info: String,
     /// Gas limit that was originally set by the transaction.
@@ -581,46 +575,6 @@ where
         #[allow(deprecated)]
         let data = data.data;
 
-        // TODO: I am not sure if we need json_log or array_log, considering we have the typed "logs"
-
-        let mut json_log_raw = JsonLogRaw::default();
-        let mut json_log = JsonLog::default();
-        let mut array_log = ArrayLog::default();
-
-        if tx_response.code == 0 && tx_response.raw_log != "" {
-            // this mess takes the array of objects containing "events"
-            // and adds another field "msg_index" to them.
-            //
-            // See https://github.com/cosmos/cosmos-sdk/pull/11147
-            //
-            // Ex:
-            // [
-            //   {
-            //     "msg_index": 0  <--- ADDED FIELD
-            //     "events": [
-            //       {
-            //         "type":"message",
-            //         "attributes":[
-            //           {"key":"action","value":"/ibc.core.client.v1.MsgUpdateClient"},
-            //           {"key":"module","value":"ibc_client"}
-            //         ]
-            //       }
-            //     ]
-            //   }
-            // ]
-            json_log_raw = serde_json::from_str(&tx_response.raw_log)?;
-            json_log = json_log_raw
-                .into_iter()
-                .enumerate()
-                .map(|(msg_index, entry)| JsonLogEntry {
-                    msg_index: msg_index as u16,
-                    events: entry.events,
-                })
-                .collect();
-        }
-
-        let json_log = None;
-        let array_log = None;
         let ibc_responses = None;
 
         debug!("processing events...");
@@ -639,8 +593,6 @@ where
             data,
             raw_log: tx_response.raw_log,
             logs: tx_response.logs,
-            json_log,
-            array_log,
             ibc_responses,
             info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
