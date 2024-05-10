@@ -2,6 +2,7 @@
 
 use hex::decode;
 use log::{debug, info, trace, warn};
+use serde::Deserialize;
 
 use crate::{
     query::Querier,
@@ -180,29 +181,43 @@ pub trait ReadonlySigner: AminoSigner {
     }
 }
 
+// TODO: I am not sure if we need json_log or array_log, considering we have the typed "logs"
 #[derive(Debug)]
 pub struct TxResponse {
     /// Block height in which the tx was committed on-chain
     pub height: u64,
-    /// An RFC 3339 timestamp of when the tx was committed on-chain.
-    /// The format is `{year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z`.
-    pub timestamp: String,
     /// Transaction hash (might be used as transaction ID). Guaranteed to be non-empty upper-case hex
-    pub transaction_hash: String,
-    /// Transaction execution error code. 0 on success.
-    pub code: u32,
+    pub txhash: String,
     /// Namespace for the Code
     pub codespace: String,
-    /// Additional information. May be non-deterministic.
-    pub info: String,
+    /// Transaction execution error code. 0 on success.
+    pub code: u32,
+    /// Return value (if there's any) for each input message
+    pub data: Vec<Any>,
+    /// The output of the application's logger (raw string). May be non-deterministic.
+    ///
     /// If code != 0, rawLog contains the error.
     /// If code = 0 you'll probably want to use `jsonLog` or `arrayLog`.
     /// Values are not decrypted.
     pub raw_log: String,
+    /// The output of the application's logger (typed). May be non-deterministic.
+    pub logs: Vec<AbciMessageLog>,
+
     /// If code = 0, `jsonLog = serde_json::from_str(raw_log)`. Values are decrypted if possible.
     pub json_log: Option<JsonLog>,
     /// If code = 0, `array_log` is a flattened `json_log`. Values are decrypted if possible.
     pub array_log: Option<ArrayLog>,
+    /// If code = 0 and the tx resulted in sending IBC packets, `ibc_ack_txs` is a list of IBC acknowledgement or timeout transactions which signal whether the original IBC packet was accepted, rejected, or timed-out on the receiving chain.
+    pub ibc_responses: Option<Vec<IbcResponse>>,
+
+    /// Additional information. May be non-deterministic.
+    pub info: String,
+    /// Gas limit that was originally set by the transaction.
+    pub gas_wanted: u64,
+    /// Amount of gas that was actually used by the transaction.
+    pub gas_used: u64,
+    /// Decoded transaction input.
+    pub tx: Tx,
     /// Events defines all the events emitted by processing a transaction. Note,
     /// these events include those emitted by processing all the messages and those
     /// emitted from the ante handler. Whereas Logs contains the events, with
@@ -210,25 +225,38 @@ pub struct TxResponse {
     ///
     /// Note: events are not decrypted.
     pub events: Vec<Event>,
-    /// Return value (if there's any) for each input message
-    pub data: Vec<Any>,
-    /// Decoded transaction input.
-    pub tx: Tx,
-    /// Amount of gas that was actually used by the transaction.
-    pub gas_used: u64,
-    /// Gas limit that was originally set by the transaction.
-    pub gas_wanted: u64,
-    // /// If code = 0 and the tx resulted in sending IBC packets, `ibc_ack_txs` is a list of IBC acknowledgement or timeout transactions which signal whether the original IBC packet was accepted, rejected, or timed-out on the receiving chain.
-    // pub ibc_responses: Vec<IbcResponse>,
+    /// An RFC 3339 timestamp of when the tx was committed on-chain.
+    /// The format is `{year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z`.
+    pub timestamp: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize)]
 pub struct JsonLogEntry {
-    pub msg_index: u32,
-    pub events: Vec<Event>,
+    pub msg_index: u16,
+    pub events: Vec<EventRaw>,
 }
 
 pub type JsonLog = Vec<JsonLogEntry>;
+
+#[derive(Debug, Default, Deserialize)]
+pub struct JsonLogEntryNoIndex {
+    pub events: Vec<EventRaw>,
+}
+
+pub type JsonLogRaw = Vec<JsonLogEntryNoIndex>;
+
+#[derive(Debug, Default, Deserialize)]
+pub struct EventRaw {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub attributes: Vec<EventAttribute>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct EventAttribute {
+    pub key: String,
+    pub value: String,
+}
 
 #[derive(Debug)]
 pub struct ArrayLogEntry {
@@ -484,10 +512,46 @@ where
         }
 
         // TODO:
-        // * Produce json_log and array_log from raw_log.
+        // * Produce json_log and array_log from raw_log
 
-        let json_log = JsonLog::default();
-        let array_log = ArrayLog::default();
+        let raw_log = tx_response.raw_log;
+        let mut json_log_raw = JsonLogRaw::default();
+        let mut json_log = JsonLog::default();
+        let mut array_log = ArrayLog::default();
+
+        if tx_response.code == 0 && raw_log != "" {
+            // this mess takes the array of objects containing "events"
+            // and adds another field "msg_index" to them.
+            //
+            // See https://github.com/cosmos/cosmos-sdk/pull/11147
+            //
+            // Ex:
+            // [
+            //   {
+            //     "msg_index": 0  <--- ADDED FIELD
+            //     "events": [
+            //       {
+            //         "type":"message",
+            //         "attributes":[
+            //           {"key":"action","value":"/ibc.core.client.v1.MsgUpdateClient"},
+            //           {"key":"module","value":"ibc_client"}
+            //         ]
+            //       }
+            //     ]
+            //   }
+            // ]
+            json_log_raw = serde_json::from_str(&raw_log)?;
+            json_log = json_log_raw
+                .into_iter()
+                .enumerate()
+                .map(|(msg_index, entry)| JsonLogEntry {
+                    msg_index: msg_index as u16,
+                    events: entry.events,
+                })
+                .collect();
+        }
+
+        let logs = tx_response.logs;
 
         let events = tx_response
             .events
@@ -582,20 +646,21 @@ where
 
         Ok(TxResponse {
             height: tx_response.height as u64,
-            timestamp: tx_response.timestamp,
-            transaction_hash: tx_response.txhash.to_uppercase(),
+            txhash: tx_response.txhash.to_uppercase(),
             code: tx_response.code,
             codespace: tx_response.codespace,
-            info: tx_response.info,
-            raw_log: tx_response.raw_log,
-            json_log: Some(json_log),
-            array_log: Some(array_log),
-            events,
             data: data.msg_responses,
-            tx,
-            gas_used: tx_response.gas_used as u64,
+            raw_log,
+            logs,
+            json_log: None,
+            array_log: None,
+            ibc_responses: None,
+            info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
-            // ibc_responses,
+            gas_used: tx_response.gas_used as u64,
+            tx,
+            timestamp: tx_response.timestamp,
+            events,
         })
     }
 

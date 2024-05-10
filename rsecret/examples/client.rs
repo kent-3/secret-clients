@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
             None,
         )
         .await?;
-    println!("{:?}", foo.unwrap().green());
+    println!("{:#?}", foo.unwrap().green());
 
     // let foo = secretrs.query.auth.params().await?;
     // println!("{:?}", foo);
