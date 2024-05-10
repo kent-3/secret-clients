@@ -17,10 +17,7 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
 use secretrs::{
     abci::TxMsgData,
-    compute::{
-        MsgExecuteContract, MsgExecuteContractResponse, MsgInstantiateContract,
-        MsgInstantiateContractResponse, MsgMigrateContract, MsgMigrateContractResponse,
-    },
+    compute::{MsgExecuteContract, MsgInstantiateContract, MsgMigrateContract},
     proto::{
         cosmos::{
             base::abci::v1beta1::{
@@ -31,12 +28,9 @@ use secretrs::{
             },
         },
         secret::compute::v1beta1::{
-            MsgExecuteContract as MsgExecuteContractProto,
-            MsgExecuteContractResponse as MsgExecuteContractResponseProto,
-            MsgInstantiateContract as MsgInstantiateContractProto,
-            MsgInstantiateContractResponse as MsgInstantiateContractResponseProto,
-            MsgMigrateContract as MsgMigrateContractProto,
-            MsgMigrateContractResponse as MsgMigrateContractResponseProto,
+            MsgExecuteContract as MsgExecuteContractProto, MsgExecuteContractResponse,
+            MsgInstantiateContract as MsgInstantiateContractProto, MsgInstantiateContractResponse,
+            MsgMigrateContract as MsgMigrateContractProto, MsgMigrateContractResponse,
         },
         tendermint::abci::Event as EventProto,
     },
@@ -358,8 +352,6 @@ where
     ) -> Result<Option<TxResponse>> {
         // TODO: check that get_tx() handles the "tx not found" error
 
-        debug!("started get_tx function");
-
         // first we get back the proto TxResponse
         let GetTxResponse {
             tx_response: maybe_tx_response,
@@ -370,14 +362,10 @@ where
             return Ok(None);
         };
 
-        debug!("We got a response! Block Height: {}", tx_response.height);
-
         // then we process it into to our local TxResponse type
         let tx_response = self.decode_tx_response(tx_response, ibc_tx_options)?;
 
-        debug!("We did it! \n\n{:?}", tx_response);
-
-        todo!()
+        Ok(Some(tx_response))
     }
 
     /// To tell which events you want, you need to provide a query. query is a string, which has a form: "condition AND condition ..." (no OR at the moment).
@@ -478,9 +466,6 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    // WARN: for testing purposes only!
-                    nonces.insert(msg_index as u16, nonce);
-
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
                         // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
@@ -490,7 +475,7 @@ where
 
                         *any = msg.to_any()?
                     }
-                    warn!("unable to decrypt... oh well!");
+                    debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgMigrateContract" => {
                     let mut msg: MsgMigrateContract =
@@ -515,8 +500,6 @@ where
 
         // TODO:
         // * Produce json_log and array_log from raw_log.
-        // * Process events, data, etc. Try to decrypt any messages.
-        // * Convert from protobuf types to more meaningful types where applicable.
 
         let json_log = JsonLog::default();
         let array_log = ArrayLog::default();
@@ -527,32 +510,25 @@ where
             .map(|event| Ok(event.try_into()?))
             .collect::<Result<Vec<Event>>>()?;
 
-        // hex???
         let mut data = <TxMsgDataProto as Message>::decode(&*hex::decode(tx_response.data)?)?;
-        trace!("{data:?}");
 
+        // NOTE:
         // `TxMsgData` has two fields: data: Vec<MsgData> and msg_responses: Vec<Any>.
-        //
-        // `data` is supposed to be deprecated, but that's where the data is anyway.
-        // `msg_responnses` is empty.
-        //
+        //     * `data` was deprecated in v0.46, but secret is currently v0.45
+        //     * `msg_responnses` is currently empty
         // `MsgData` is like a pseudo-Any. It has two fields: `msg_type` and `data`.
-        // `msg_type` is the type of message that `data` is the response to.
+        //     * `msg_type` is the type of message that `data` is the response to
 
         #[allow(deprecated)]
         for (msg_index, msg_data) in data.data.iter_mut().enumerate() {
-            trace!("hello from inside the loop!");
-            trace!("Nonces: {nonces:?}");
             // Check if the message needs decryption
             if let Some(nonce) = nonces.get(&(msg_index as u16)) {
                 match msg_data.msg_type.as_str() {
                     // if the message was a MsgInstantiateContract, then the data is in the form of
                     // MsgInstantiateContractResponse. same goes for Execute and Migrate.
                     "/secret.compute.v1beta1.MsgInstantiateContract" => {
-                        let mut decoded = <MsgInstantiateContractResponseProto as Message>::decode(
-                            &*msg_data.data,
-                        )?;
-                        // let mut decoded: MsgInstantiateContractResponse = decoded.try_into()?;
+                        let mut decoded =
+                            <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
                         if let Ok(plaintext_bytes) =
                             self.encryption_utils.decrypt(&nonce, &decoded.data)
@@ -571,9 +547,7 @@ where
                     }
                     "/secret.compute.v1beta1.MsgExecuteContract" => {
                         let mut decoded =
-                            <MsgExecuteContractResponseProto as Message>::decode(&*msg_data.data)?;
-                        // let mut decoded: MsgExecuteContractResponse = decoded.try_into()?;
-                        trace!("decoded message: {decoded:?}");
+                            <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
                         if let Ok(plaintext_bytes) =
                             self.encryption_utils.decrypt(&nonce, &decoded.data)
@@ -588,12 +562,11 @@ where
                                 data: decoded.data,
                             }
                         }
-                        warn!("unable to decrypt... oh well!");
+                        debug!("unable to decrypt... oh well!");
                     }
                     "/secret.compute.v1beta1.MsgMigrateContract" => {
                         let mut decoded =
-                            <MsgMigrateContractResponseProto as Message>::decode(&*msg_data.data)?;
-                        // let mut decoded: MsgMigrateContractResponse = decoded.try_into()?;
+                            <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
 
                         if let Ok(plaintext_bytes) =
                             self.encryption_utils.decrypt(&nonce, &decoded.data)
@@ -613,7 +586,7 @@ where
                     // MsgExecuteContractResponse, or MsgMigrateContractResponse,
                     // leave it unchanged. It doesn't require any decryption.
                     _ => {
-                        trace!("no encrypted messages here!")
+                        debug!("no encrypted messages here!")
                     }
                 };
             }
