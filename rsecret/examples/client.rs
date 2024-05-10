@@ -2,6 +2,7 @@
 
 use color_eyre::owo_colors::OwoColorize;
 use rsecret::{CreateClientOptions, Result, SecretNetworkClient, TxOptions};
+use secretrs::proto::cosmos::tx::v1beta1::OrderBy;
 
 const GRPC_URL: &str = "http://grpc.testnet.secretsaturn.net:9090";
 const CHAIN_ID: &str = "pulsar-3";
@@ -19,14 +20,25 @@ async fn main() -> Result<()> {
     println!(" {}", "SecretNetworkClient created".blue().bold());
     println!("{:#?}", secretrs.blue());
 
-    let foo = secretrs
-        .get_tx(
-            // "95B29C83743756E7272C6F6117ADA63DE2E8B5C1434A6EEF994E167EE34EB050",
-            "CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6",
+    // let foo = secretrs
+    //     .get_tx(
+    //         // "95B29C83743756E7272C6F6117ADA63DE2E8B5C1434A6EEF994E167EE34EB050",
+    //         "CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6",
+    //         None,
+    //     )
+    //     .await?;
+    // println!("{:#?}", foo.unwrap().green());
+
+    let bar = secretrs
+        .txs_query(
+            // "tx.hash='CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6'",
+            "tx.height=4825000",
             None,
+            None,
+            OrderBy::Asc,
         )
         .await?;
-    // println!("{:#?}", foo.unwrap().green());
+    println!("{:#?}", bar.unwrap().green());
 
     // let foo = secretrs.query.auth.params().await?;
     // println!("{:?}", foo);

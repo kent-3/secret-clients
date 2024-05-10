@@ -20,11 +20,16 @@ use secretrs::{
     abci::TxMsgData,
     proto::{
         cosmos::{
-            base::abci::v1beta1::{
-                AbciMessageLog, MsgData, TxMsgData as TxMsgDataProto, TxResponse as TxResponseProto,
+            base::{
+                abci::v1beta1::{
+                    AbciMessageLog, MsgData, TxMsgData as TxMsgDataProto,
+                    TxResponse as TxResponseProto,
+                },
+                query::v1beta1::PageRequest,
             },
             tx::v1beta1::{
-                BroadcastMode, GetTxResponse, OrderBy, SimulateResponse, Tx as TxProto, TxRaw,
+                BroadcastMode, GetTxResponse, GetTxsEventRequest, OrderBy, SimulateResponse,
+                Tx as TxProto, TxRaw,
             },
         },
         secret::compute::v1beta1::{
@@ -33,7 +38,6 @@ use secretrs::{
         },
         tendermint::abci::Event as EventProto,
     },
-    query::PageRequest,
     tendermint::abci::Event,
     tx::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
@@ -224,44 +228,6 @@ pub struct TxResponse {
     pub timestamp: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
-pub struct JsonLogEntry {
-    pub msg_index: u16,
-    pub events: Vec<EventRaw>,
-}
-
-pub type JsonLog = Vec<JsonLogEntry>;
-
-#[derive(Debug, Default, Deserialize)]
-pub struct JsonLogEntryNoIndex {
-    pub events: Vec<EventRaw>,
-}
-
-pub type JsonLogRaw = Vec<JsonLogEntryNoIndex>;
-
-#[derive(Debug, Default, Deserialize)]
-pub struct EventRaw {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub attributes: Vec<EventAttribute>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct EventAttribute {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug)]
-pub struct ArrayLogEntry {
-    pub msg: u32,
-    pub r#type: String,
-    pub key: String,
-    pub value: String,
-}
-
-pub type ArrayLog = Vec<ArrayLogEntry>;
-
 #[derive(Debug)]
 pub enum IbcResponseType {
     Ack,
@@ -402,14 +368,37 @@ where
     /// NOTE: Starting from Cosmos SDK v0.46+, expressions cannot contain spaces anymore:
     /// - Legal: `a.b='c'`
     /// - Illegal: `a.b = 'c'`
-    async fn txs_query(
+    #[allow(deprecated)]
+    pub async fn txs_query(
         &self,
-        query: String,
-        ibc_tx_options: IbcTxOptions,
-        pagination: PageRequest,
+        query: &str,
+        ibc_tx_options: Option<IbcTxOptions>,
+        pagination: Option<PageRequest>,
         order_by: OrderBy,
-    ) -> Result<Vec<TxResponse>> {
-        todo!()
+    ) -> Result<Option<Vec<TxResponse>>> {
+        let events: Vec<String> = query.split(" AND ").map(|q| q.trim().to_string()).collect();
+        debug!("{events:?}");
+        let order_by = order_by.into();
+        debug!("{order_by:?}");
+
+        let get_txs_event_request = GetTxsEventRequest {
+            events,
+            pagination,
+            order_by,
+            // I think these fields are not used in SDK v0.45
+            page: 0,
+            limit: 0,
+        };
+        let get_txs_event_response = self.query.tx.get_txs_event(get_txs_event_request).await?;
+
+        if let Some(pagination) = get_txs_event_response.pagination {
+            debug!("not sure what to do about pagination yet");
+        };
+
+        let tx_responses =
+            self.decode_tx_responses(get_txs_event_response.tx_responses, ibc_tx_options)?;
+
+        Ok(Some(tx_responses))
     }
 
     async fn wait_for_ibc_response(
