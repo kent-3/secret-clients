@@ -17,7 +17,6 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
 use secretrs::{
     abci::TxMsgData,
-    compute::{MsgExecuteContract, MsgInstantiateContract, MsgMigrateContract},
     proto::{
         cosmos::{
             base::abci::v1beta1::{
@@ -28,9 +27,8 @@ use secretrs::{
             },
         },
         secret::compute::v1beta1::{
-            MsgExecuteContract as MsgExecuteContractProto, MsgExecuteContractResponse,
-            MsgInstantiateContract as MsgInstantiateContractProto, MsgInstantiateContractResponse,
-            MsgMigrateContract as MsgMigrateContractProto, MsgMigrateContractResponse,
+            MsgExecuteContract, MsgExecuteContractResponse, MsgInstantiateContract,
+            MsgInstantiateContractResponse, MsgMigrateContract, MsgMigrateContractResponse,
         },
         tendermint::abci::Event as EventProto,
     },
@@ -420,11 +418,8 @@ where
             .into_iter()
             .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
             .collect()
-        // todo!()
     }
 
-    // Note: we could maybe take in a `GetTxResponse`, that way we have access to the `Tx` without
-    // having to decode the `Any` from inside of `TxResponse.tx`.
     fn decode_tx_response(
         &self,
         tx_response: TxResponseProto,
@@ -433,35 +428,28 @@ where
         let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
         let mut nonces = ComputeMsgToNonce::new();
 
-        let any = tx_response.tx.expect("missing field: 'tx'");
+        let Some(any) = tx_response.tx else {
+            return Err("missing field: 'tx'".into());
+        };
         let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
-        log::debug!("# of messages: {:?}", tx.body.messages.len());
-
         for (msg_index, any) in tx.body.messages.iter_mut().enumerate() {
-            trace!("iter {msg_index}");
             // Check if the message needs decryption
             match any.type_url.as_str() {
                 "/secret.compute.v1beta1.MsgInstantiateContract" => {
-                    let mut msg: MsgInstantiateContract =
-                        any.to_msg::<MsgInstantiateContractProto>()?.try_into()?;
-
+                    let mut msg = any.to_msg::<MsgInstantiateContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
-
                     let ciphertext = &msg.init_msg[64..];
 
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
-
-                        *any = msg.to_any()?
+                        *any = Any::from_msg::<MsgInstantiateContract>(&msg)?
                     }
                 }
                 "/secret.compute.v1beta1.MsgExecuteContract" => {
-                    let mut msg: MsgExecuteContract =
-                        any.to_msg::<MsgExecuteContractProto>()?.try_into()?;
-
+                    let mut msg = any.to_msg::<MsgExecuteContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
@@ -473,14 +461,12 @@ where
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
                         debug!("decryption success! {:#?}", msg.msg);
 
-                        *any = msg.to_any()?
+                        *any = Any::from_msg::<MsgExecuteContract>(&msg)?
                     }
                     debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgMigrateContract" => {
-                    let mut msg: MsgMigrateContract =
-                        any.to_msg::<MsgMigrateContractProto>()?.try_into()?;
-
+                    let mut msg = any.to_msg::<MsgMigrateContract>()?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
@@ -488,8 +474,7 @@ where
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
-
-                        *any = msg.to_any()?
+                        *any = Any::from_msg::<MsgMigrateContract>(&msg)?
                     }
                 }
                 // If the message is not of type MsgInstantiateContract, MsgExecuteContract, or
@@ -510,7 +495,8 @@ where
             .map(|event| Ok(event.try_into()?))
             .collect::<Result<Vec<Event>>>()?;
 
-        let mut data = <TxMsgDataProto as Message>::decode(&*hex::decode(tx_response.data)?)?;
+        let mut data =
+            <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
         // NOTE:
         // `TxMsgData` has two fields: data: Vec<MsgData> and msg_responses: Vec<Any>.
@@ -593,10 +579,6 @@ where
         }
 
         // let ibc_responses = todo!();
-
-        log::trace!("{:?}", tx);
-        // log::debug!("{:?}", events);
-        log::trace!("{:?}", data);
 
         Ok(TxResponse {
             height: tx_response.height as u64,
