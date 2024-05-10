@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use color_eyre::owo_colors::OwoColorize;
 use rsecret::{CreateClientOptions, Result, SecretNetworkClient, TxOptions};
 
 const GRPC_URL: &str = "http://grpc.testnet.secretsaturn.net:9090";
@@ -7,7 +8,7 @@ const CHAIN_ID: &str = "pulsar-3";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    env_logger::init();
+    pretty_env_logger::init();
 
     let options = CreateClientOptions {
         url: GRPC_URL,
@@ -16,9 +17,19 @@ async fn main() -> Result<()> {
     };
     let secretrs = SecretNetworkClient::connect(options).await?;
     // println!("{:#?}", secretrs);
+    println!("{}", "SecretNetworkClient created".bright_blue());
 
-    let foo = secretrs.query.auth.params().await?;
+    let foo = secretrs
+        .get_tx(
+            // "95B29C83743756E7272C6F6117ADA63DE2E8B5C1434A6EEF994E167EE34EB050",
+            "CED96D9A9AF074619374E81FECDAFBA4E2F58FC1A680322F0E4C5A05F5D3E8C6",
+            None,
+        )
+        .await?;
     println!("{:?}", foo);
+
+    // let foo = secretrs.query.auth.params().await?;
+    // println!("{:?}", foo);
 
     // let msg = MsgSend {
     //     from_address: "foo".parse()?,

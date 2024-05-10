@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use log::{debug, info, trace, warn};
+
 use crate::{
     query::Querier,
     tx::TxSender,
@@ -10,25 +12,44 @@ use crate::{
     Error, Result,
 };
 use async_trait::async_trait;
+use base64::prelude::{Engine as _, BASE64_STANDARD};
+use prost::Message;
 use secretrs::{
+    abci::TxMsgData,
+    compute::{
+        MsgExecuteContract, MsgExecuteContractResponse, MsgInstantiateContract,
+        MsgInstantiateContractResponse, MsgMigrateContract, MsgMigrateContractResponse,
+    },
     proto::{
         cosmos::{
-            base::abci::v1beta1::{AbciMessageLog, MsgData, TxResponse as TxResponseProto},
-            tx::v1beta1::{BroadcastMode, OrderBy, SimulateResponse, TxRaw},
+            base::abci::v1beta1::{
+                AbciMessageLog, TxMsgData as TxMsgDataProto, TxResponse as TxResponseProto,
+            },
+            tx::v1beta1::{
+                BroadcastMode, GetTxResponse, OrderBy, SimulateResponse, Tx as TxProto, TxRaw,
+            },
         },
-        tendermint::abci::Event,
+        secret::compute::v1beta1::{
+            MsgExecuteContract as MsgExecuteContractProto,
+            MsgExecuteContractResponse as MsgExecuteContractResponseProto,
+            MsgInstantiateContract as MsgInstantiateContractProto,
+            MsgInstantiateContractResponse as MsgInstantiateContractResponseProto,
+            MsgMigrateContract as MsgMigrateContractProto,
+            MsgMigrateContractResponse as MsgMigrateContractResponseProto,
+        },
+        tendermint::abci::Event as EventProto,
     },
     query::PageRequest,
+    tendermint::abci::Event,
     tx::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
         SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
-    EncryptionUtils,
+    Any, EncryptionUtils,
 };
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tonic::codegen::{Body, Bytes, StdError};
 
-/// Options to configure the creation of a client.
 #[derive(Debug)]
 pub struct CreateClientOptions {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
@@ -197,7 +218,7 @@ pub struct TxResponse {
     /// Note: events are not decrypted.
     pub events: Vec<Event>,
     /// Return value (if there's any) for each input message
-    pub data: Vec<Vec<u8>>,
+    pub data: Vec<Any>,
     /// Decoded transaction input.
     pub tx: Tx,
     /// Amount of gas that was actually used by the transaction.
@@ -254,6 +275,8 @@ impl IbcResponseType {
         }
     }
 }
+
+type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 #[derive(Debug)]
 pub struct SecretNetworkClient<T>
@@ -327,18 +350,31 @@ where
     T: Clone,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
-    async fn get_tx(
+    pub async fn get_tx(
         &self,
         hash: &str,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<Option<TxResponse>> {
-        use secretrs::proto::cosmos::tx::v1beta1::GetTxResponse;
-        let GetTxResponse { tx_response, .. } = self.query.tx.get_tx(hash).await?;
+        // TODO: check that get_tx() handles the "tx not found" error
+
+        debug!("started get_tx function");
 
         // first we get back the proto TxResponse
-        let tx_response = tx_response.unwrap();
+        let GetTxResponse {
+            tx_response: maybe_tx_response,
+            ..
+        } = self.query.tx.get_tx(hash).await?;
+
+        let Some(tx_response) = maybe_tx_response else {
+            return Ok(None);
+        };
+
+        debug!("We got a response! Block Height: {}", tx_response.height);
+
         // then we process it into to our local TxResponse type
-        let tx_response = self.decode_tx_response(tx_response)?;
+        let tx_response = self.decode_tx_response(tx_response, ibc_tx_options)?;
+
+        debug!("We did it! \n\n{:?}", tx_response);
 
         todo!()
     }
@@ -375,27 +411,191 @@ where
         todo!()
     }
 
-    async fn wait_for_ibc_response(&self) {
+    async fn wait_for_ibc_response(
+        &self,
+        packet_sequence: &str,
+        packet_src_channel: &str,
+        // type: "ack" | "timeout",
+        // ibc_tx_options: ExplicitIbcTxOptions,
+        // is_done_object: { isDone: boolean },
+    ) -> Result<IbcResponse> {
         todo!()
     }
 
-    fn decode_tx_responses(&self) {
-        todo!()
+    fn decode_tx_responses(
+        &self,
+        tx_responses: Vec<TxResponseProto>,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<Vec<TxResponse>> {
+        tx_responses
+            .into_iter()
+            .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
+            .collect()
+        // todo!()
     }
 
-    fn decode_tx_response(&self, tx_response: TxResponseProto) -> Result<TxResponse> {
-        // TODO: Produce json_log and array_log from raw_log.
-        let json_log = todo!();
-        let array_log = todo!();
+    // Note: we could maybe take in a `GetTxResponse`, that way we have access to the `Tx` without
+    // having to decode the `Any` from inside of `TxResponse.tx`.
+    fn decode_tx_response(
+        &self,
+        tx_response: TxResponseProto,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<TxResponse> {
+        let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
+        let mut nonces = ComputeMsgToNonce::new();
 
-        // TODO: Process events, data, etc. Try to decrypt any messages.
-        // Convert from protobuf types to more meaningful types where applicable.
-        let events = tx_response.events;
-        let data = tx_response.data;
-        let tx = tx_response.tx;
-        let ibc_responses = todo!();
+        let any = tx_response.tx.expect("missing field: 'tx'");
+        let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
-        let tx_response = TxResponse {
+        log::debug!("# of messages: {:?}", tx.body.messages.len());
+
+        for (msg_index, any) in tx.body.messages.iter_mut().enumerate() {
+            // Check if the message needs decryption
+            match any.type_url.as_str() {
+                "/secret.compute.v1beta1.MsgInstantiateContract" => {
+                    let mut msg: MsgInstantiateContract =
+                        any.to_msg::<MsgInstantiateContractProto>()?.try_into()?;
+                    let init_msg = msg.init_msg;
+
+                    let mut nonce = [0u8; 32];
+                    nonce.copy_from_slice(&init_msg[0..32]);
+                    let ciphertext = &init_msg[64..];
+
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                        let plaintext_message = &plaintext[64..];
+                        //hopefully these bytes are utf-8 string of valid JSON
+                        msg.init_msg = serde_json::from_slice(plaintext_message)?;
+
+                        nonces.insert(msg_index as u16, nonce);
+
+                        *any = msg.to_any()?
+                    }
+                }
+                "/secret.compute.v1beta1.MsgExecuteContract" => {
+                    let mut msg: MsgExecuteContract =
+                        any.to_msg::<MsgExecuteContractProto>()?.try_into()?;
+                    let init_msg = msg.msg;
+
+                    let mut nonce = [0u8; 32];
+                    nonce.copy_from_slice(&init_msg[0..32]);
+                    debug!("we got the nonce");
+                    let ciphertext = &init_msg[64..];
+
+                    debug!("trying to decrypt...");
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                        let plaintext_message = &plaintext[64..];
+                        //hopefully these bytes are utf-8 string of valid JSON
+                        msg.msg = serde_json::from_slice(plaintext_message)?;
+
+                        nonces.insert(msg_index as u16, nonce);
+
+                        *any = msg.to_any()?
+                    }
+                    warn!("unable to decrypt... oh well!");
+                }
+                "/secret.compute.v1beta1.MsgMigrateContract" => {
+                    let mut msg: MsgMigrateContract =
+                        any.to_msg::<MsgMigrateContractProto>()?.try_into()?;
+                    let init_msg = msg.msg;
+
+                    let mut nonce = [0u8; 32];
+                    nonce.copy_from_slice(&init_msg[0..32]);
+                    let ciphertext = &init_msg[64..];
+
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                        let plaintext_message = &plaintext[64..];
+                        //hopefully these bytes are utf-8 string of valid JSON
+                        msg.msg = serde_json::from_slice(plaintext_message)?;
+
+                        nonces.insert(msg_index as u16, nonce);
+
+                        *any = msg.to_any()?
+                    }
+                }
+                // If the message is not of type MsgInstantiateContract, MsgExecuteContract, or
+                // MsgMigrateContract, leave it unchanged. It doesn't require any decryption.
+                _ => {}
+            };
+        }
+
+        // TODO:
+        // * Produce json_log and array_log from raw_log.
+        // * Process events, data, etc. Try to decrypt any messages.
+        // * Convert from protobuf types to more meaningful types where applicable.
+
+        // let json_log = todo!();
+        // let array_log = todo!();
+
+        let events = tx_response
+            .events
+            .into_iter()
+            .map(|event| Ok(event.try_into()?))
+            .collect::<Result<Vec<Event>>>()?;
+
+        // hex???
+        let mut data = <TxMsgDataProto as Message>::decode(&*hex::decode(tx_response.data)?)?;
+
+        for (msg_index, any) in data.msg_responses.iter_mut().enumerate() {
+            // Check if the message needs decryption
+            if let Some(nonce) = nonces.get(&(msg_index as u16)) {
+                match any.type_url.as_str() {
+                    "/secret.compute.v1beta1.MsgInstantiateContractResponse" => {
+                        let mut decoded: MsgInstantiateContractResponse = any
+                            .to_msg::<MsgInstantiateContractResponseProto>()?
+                            .try_into()?;
+
+                        let plaintext_bytes =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
+                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+
+                        decoded.data = data;
+
+                        *any = decoded.to_any()?
+                    }
+                    "/secret.compute.v1beta1.MsgExecuteContractResponse" => {
+                        let mut decoded: MsgExecuteContractResponse = any
+                            .to_msg::<MsgExecuteContractResponseProto>()?
+                            .try_into()?;
+
+                        let plaintext_bytes =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
+                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+
+                        decoded.data = data;
+
+                        *any = decoded.to_any()?
+                    }
+                    "/secret.compute.v1beta1.MsgMigrateContractResponse" => {
+                        let mut decoded: MsgMigrateContractResponse = any
+                            .to_msg::<MsgMigrateContractResponseProto>()?
+                            .try_into()?;
+
+                        let plaintext_bytes =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
+                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+
+                        decoded.data = data;
+
+                        *any = decoded.to_any()?
+                    }
+                    // If the message is not of type MsgInstantiateContractResponse,
+                    // MsgExecuteContractResponse, or MsgMigrateContractResponse,
+                    // leave it unchanged. It doesn't require any decryption.
+                    _ => {}
+                };
+            }
+        }
+
+        // let ibc_responses = todo!();
+
+        log::debug!("{:?}", tx);
+        // log::debug!("{:?}", events);
+        log::debug!("{:?}", data);
+
+        Ok(TxResponse {
             height: tx_response.height as u64,
             timestamp: tx_response.timestamp,
             transaction_hash: tx_response.txhash.to_uppercase(),
@@ -405,14 +605,13 @@ where
             raw_log: tx_response.raw_log,
             json_log: todo!(),
             array_log: todo!(),
-            events: todo!(),
-            data: todo!(),
-            tx: todo!(),
+            events,
+            data: data.msg_responses,
+            tx,
             gas_used: tx_response.gas_used as u64,
             gas_wanted: tx_response.gas_wanted as u64,
             ibc_responses: todo!(),
-        };
-        todo!()
+        })
     }
 
     /// Broadcasts a signed transaction to the network and monitors its inclusion in a block.
