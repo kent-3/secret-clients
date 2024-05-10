@@ -66,7 +66,11 @@ where
         todo!()
     }
 
-    fn prepare_tx<M: cosmrs::tx::Msg>(&self, msg: M, tx_options: TxOptions) -> BroadcastTxRequest {
+    fn prepare_tx<M: secretrs::tx::Msg>(
+        &self,
+        msg: M,
+        tx_options: TxOptions,
+    ) -> BroadcastTxRequest {
         todo!()
     }
 

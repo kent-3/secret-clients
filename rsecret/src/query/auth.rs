@@ -135,32 +135,32 @@ where
         Ok(response.into_inner().account_address)
     }
 
-    pub async fn module_accounts(&self) -> Result<Vec<::cosmrs::auth::ModuleAccount>> {
+    pub async fn module_accounts(&self) -> Result<Vec<::secretrs::auth::ModuleAccount>> {
         unimplemented!("unknown method ModuleAccounts for service cosmos.auth.v1beta1.Query");
 
         let request = QueryModuleAccountsRequest {};
         let response: ::tonic::Response<QueryModuleAccountsResponse> =
             self.inner.clone().module_accounts(request).await?;
 
-        // convert `Any` to proto::cosmos::auth::v1beta1::ModuleAccount to cosmrs::auth::ModuleAccount
+        // convert `Any` to proto::cosmos::auth::v1beta1::ModuleAccount to secretrs::auth::ModuleAccount
         response
             .into_inner()
             .accounts
             .iter()
             .map(|any| Ok(any.to_msg::<ModuleAccount>()?.try_into()?))
-            .collect::<Result<Vec<::cosmrs::auth::ModuleAccount>>>()
+            .collect::<Result<Vec<::secretrs::auth::ModuleAccount>>>()
     }
 
     pub async fn module_account_by_name(
         &self,
         name: impl Into<String>,
-    ) -> Result<Option<::cosmrs::auth::ModuleAccount>> {
+    ) -> Result<Option<::secretrs::auth::ModuleAccount>> {
         let name = name.into();
         let request = QueryModuleAccountByNameRequest { name };
         let response: ::tonic::Response<QueryModuleAccountByNameResponse> =
             self.inner.clone().module_account_by_name(request).await?;
 
-        // convert `Any` to proto::cosmos::auth::v1beta1::ModuleAccount to cosmrs::auth::ModuleAccount
+        // convert `Any` to proto::cosmos::auth::v1beta1::ModuleAccount to secretrs::auth::ModuleAccount
         response
             .into_inner()
             .account
@@ -191,8 +191,8 @@ where
 
 #[derive(Clone, Debug)]
 pub enum Account {
-    BaseAccount(::cosmrs::auth::BaseAccount),
-    ModuleAccount(::cosmrs::auth::ModuleAccount),
-    ContinuousVestingAccount(::cosmrs::vesting::ContinuousVestingAccount),
-    DelayedVestingAccount(::cosmrs::vesting::DelayedVestingAccount),
+    BaseAccount(::secretrs::auth::BaseAccount),
+    ModuleAccount(::secretrs::auth::ModuleAccount),
+    ContinuousVestingAccount(::secretrs::vesting::ContinuousVestingAccount),
+    DelayedVestingAccount(::secretrs::vesting::DelayedVestingAccount),
 }

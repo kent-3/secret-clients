@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use hex::decode;
 use log::{debug, info, trace, warn};
 
 use crate::{
@@ -23,7 +24,7 @@ use secretrs::{
     proto::{
         cosmos::{
             base::abci::v1beta1::{
-                AbciMessageLog, TxMsgData as TxMsgDataProto, TxResponse as TxResponseProto,
+                AbciMessageLog, MsgData, TxMsgData as TxMsgDataProto, TxResponse as TxResponseProto,
             },
             tx::v1beta1::{
                 BroadcastMode, GetTxResponse, OrderBy, SimulateResponse, Tx as TxProto, TxRaw,
@@ -225,11 +226,11 @@ pub struct TxResponse {
     pub gas_used: u64,
     /// Gas limit that was originally set by the transaction.
     pub gas_wanted: u64,
-    /// If code = 0 and the tx resulted in sending IBC packets, `ibc_ack_txs` is a list of IBC acknowledgement or timeout transactions which signal whether the original IBC packet was accepted, rejected, or timed-out on the receiving chain.
-    pub ibc_responses: Vec<IbcResponse>,
+    // /// If code = 0 and the tx resulted in sending IBC packets, `ibc_ack_txs` is a list of IBC acknowledgement or timeout transactions which signal whether the original IBC packet was accepted, rejected, or timed-out on the receiving chain.
+    // pub ibc_responses: Vec<IbcResponse>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct JsonLogEntry {
     pub msg_index: u32,
     pub events: Vec<Event>,
@@ -450,23 +451,21 @@ where
         log::debug!("# of messages: {:?}", tx.body.messages.len());
 
         for (msg_index, any) in tx.body.messages.iter_mut().enumerate() {
+            trace!("iter {msg_index}");
             // Check if the message needs decryption
             match any.type_url.as_str() {
                 "/secret.compute.v1beta1.MsgInstantiateContract" => {
                     let mut msg: MsgInstantiateContract =
                         any.to_msg::<MsgInstantiateContractProto>()?.try_into()?;
-                    let init_msg = msg.init_msg;
 
                     let mut nonce = [0u8; 32];
-                    nonce.copy_from_slice(&init_msg[0..32]);
-                    let ciphertext = &init_msg[64..];
+                    nonce.copy_from_slice(&msg.init_msg[0..32]);
+
+                    let ciphertext = &msg.init_msg[64..];
 
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
-                        let plaintext_message = &plaintext[64..];
-                        //hopefully these bytes are utf-8 string of valid JSON
-                        msg.init_msg = serde_json::from_slice(plaintext_message)?;
-
                         nonces.insert(msg_index as u16, nonce);
+                        msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
 
                         *any = msg.to_any()?
                     }
@@ -474,20 +473,20 @@ where
                 "/secret.compute.v1beta1.MsgExecuteContract" => {
                     let mut msg: MsgExecuteContract =
                         any.to_msg::<MsgExecuteContractProto>()?.try_into()?;
-                    let init_msg = msg.msg;
 
                     let mut nonce = [0u8; 32];
-                    nonce.copy_from_slice(&init_msg[0..32]);
-                    debug!("we got the nonce");
-                    let ciphertext = &init_msg[64..];
+                    nonce.copy_from_slice(&msg.msg[0..32]);
+                    let ciphertext = &msg.msg[64..];
 
-                    debug!("trying to decrypt...");
+                    // WARN: for testing purposes only!
+                    nonces.insert(msg_index as u16, nonce);
+
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
-                        let plaintext_message = &plaintext[64..];
-                        //hopefully these bytes are utf-8 string of valid JSON
-                        msg.msg = serde_json::from_slice(plaintext_message)?;
-
+                        // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
+                        //hopefully these bytes are utf-8 string of valid JSON
+                        msg.msg = serde_json::from_slice(&plaintext[64..])?;
+                        debug!("decryption success! {:#?}", msg.msg);
 
                         *any = msg.to_any()?
                     }
@@ -496,18 +495,14 @@ where
                 "/secret.compute.v1beta1.MsgMigrateContract" => {
                     let mut msg: MsgMigrateContract =
                         any.to_msg::<MsgMigrateContractProto>()?.try_into()?;
-                    let init_msg = msg.msg;
 
                     let mut nonce = [0u8; 32];
-                    nonce.copy_from_slice(&init_msg[0..32]);
-                    let ciphertext = &init_msg[64..];
+                    nonce.copy_from_slice(&msg.msg[0..32]);
+                    let ciphertext = &msg.msg[64..];
 
                     if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
-                        let plaintext_message = &plaintext[64..];
-                        //hopefully these bytes are utf-8 string of valid JSON
-                        msg.msg = serde_json::from_slice(plaintext_message)?;
-
                         nonces.insert(msg_index as u16, nonce);
+                        msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
                         *any = msg.to_any()?
                     }
@@ -523,8 +518,8 @@ where
         // * Process events, data, etc. Try to decrypt any messages.
         // * Convert from protobuf types to more meaningful types where applicable.
 
-        // let json_log = todo!();
-        // let array_log = todo!();
+        let json_log = JsonLog::default();
+        let array_log = ArrayLog::default();
 
         let events = tx_response
             .events
@@ -534,66 +529,101 @@ where
 
         // hex???
         let mut data = <TxMsgDataProto as Message>::decode(&*hex::decode(tx_response.data)?)?;
+        trace!("{data:?}");
 
-        for (msg_index, any) in data.msg_responses.iter_mut().enumerate() {
+        // `TxMsgData` has two fields: data: Vec<MsgData> and msg_responses: Vec<Any>.
+        //
+        // `data` is supposed to be deprecated, but that's where the data is anyway.
+        // `msg_responnses` is empty.
+        //
+        // `MsgData` is like a pseudo-Any. It has two fields: `msg_type` and `data`.
+        // `msg_type` is the type of message that `data` is the response to.
+
+        #[allow(deprecated)]
+        for (msg_index, msg_data) in data.data.iter_mut().enumerate() {
+            trace!("hello from inside the loop!");
+            trace!("Nonces: {nonces:?}");
             // Check if the message needs decryption
             if let Some(nonce) = nonces.get(&(msg_index as u16)) {
-                match any.type_url.as_str() {
-                    "/secret.compute.v1beta1.MsgInstantiateContractResponse" => {
-                        let mut decoded: MsgInstantiateContractResponse = any
-                            .to_msg::<MsgInstantiateContractResponseProto>()?
-                            .try_into()?;
+                match msg_data.msg_type.as_str() {
+                    // if the message was a MsgInstantiateContract, then the data is in the form of
+                    // MsgInstantiateContractResponse. same goes for Execute and Migrate.
+                    "/secret.compute.v1beta1.MsgInstantiateContract" => {
+                        let mut decoded = <MsgInstantiateContractResponseProto as Message>::decode(
+                            &*msg_data.data,
+                        )?;
+                        // let mut decoded: MsgInstantiateContractResponse = decoded.try_into()?;
 
-                        let plaintext_bytes =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
-                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+                        if let Ok(plaintext_bytes) =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)
+                        {
+                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
 
-                        decoded.data = data;
+                            decoded.data = data;
 
-                        *any = decoded.to_any()?
+                            *msg_data = MsgData {
+                                msg_type: "/secret.compute.v1beta1.MsgInstantiateContract"
+                                    .to_string(),
+                                data: decoded.data,
+                            }
+                        }
                     }
-                    "/secret.compute.v1beta1.MsgExecuteContractResponse" => {
-                        let mut decoded: MsgExecuteContractResponse = any
-                            .to_msg::<MsgExecuteContractResponseProto>()?
-                            .try_into()?;
+                    "/secret.compute.v1beta1.MsgExecuteContract" => {
+                        let mut decoded =
+                            <MsgExecuteContractResponseProto as Message>::decode(&*msg_data.data)?;
+                        // let mut decoded: MsgExecuteContractResponse = decoded.try_into()?;
+                        trace!("decoded message: {decoded:?}");
 
-                        let plaintext_bytes =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
-                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+                        if let Ok(plaintext_bytes) =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)
+                        {
+                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
 
-                        decoded.data = data;
+                            decoded.data = data;
 
-                        *any = decoded.to_any()?
+                            *msg_data = MsgData {
+                                msg_type: "/secret.compute.v1beta1.MsgExecuteContract".to_string(),
+                                data: decoded.data,
+                            }
+                        }
+                        warn!("unable to decrypt... oh well!");
                     }
-                    "/secret.compute.v1beta1.MsgMigrateContractResponse" => {
-                        let mut decoded: MsgMigrateContractResponse = any
-                            .to_msg::<MsgMigrateContractResponseProto>()?
-                            .try_into()?;
+                    "/secret.compute.v1beta1.MsgMigrateContract" => {
+                        let mut decoded =
+                            <MsgMigrateContractResponseProto as Message>::decode(&*msg_data.data)?;
+                        // let mut decoded: MsgMigrateContractResponse = decoded.try_into()?;
 
-                        let plaintext_bytes =
-                            self.encryption_utils.decrypt(&nonce, &decoded.data)?;
-                        let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
-                        let data = BASE64_STANDARD.decode(plaintext_b64)?;
+                        if let Ok(plaintext_bytes) =
+                            self.encryption_utils.decrypt(&nonce, &decoded.data)
+                        {
+                            let plaintext_b64 = String::from_utf8(plaintext_bytes)?;
+                            let data = BASE64_STANDARD.decode(plaintext_b64)?;
 
-                        decoded.data = data;
+                            decoded.data = data;
 
-                        *any = decoded.to_any()?
+                            *msg_data = MsgData {
+                                msg_type: "/secret.compute.v1beta1.MsgMigrateContract".to_string(),
+                                data: decoded.data,
+                            }
+                        }
                     }
                     // If the message is not of type MsgInstantiateContractResponse,
                     // MsgExecuteContractResponse, or MsgMigrateContractResponse,
                     // leave it unchanged. It doesn't require any decryption.
-                    _ => {}
+                    _ => {
+                        trace!("no encrypted messages here!")
+                    }
                 };
             }
         }
 
         // let ibc_responses = todo!();
 
-        log::debug!("{:?}", tx);
+        log::trace!("{:?}", tx);
         // log::debug!("{:?}", events);
-        log::debug!("{:?}", data);
+        log::trace!("{:?}", data);
 
         Ok(TxResponse {
             height: tx_response.height as u64,
@@ -603,14 +633,14 @@ where
             codespace: tx_response.codespace,
             info: tx_response.info,
             raw_log: tx_response.raw_log,
-            json_log: todo!(),
-            array_log: todo!(),
+            json_log: Some(json_log),
+            array_log: Some(array_log),
             events,
             data: data.msg_responses,
             tx,
             gas_used: tx_response.gas_used as u64,
             gas_wanted: tx_response.gas_wanted as u64,
-            ibc_responses: todo!(),
+            // ibc_responses,
         })
     }
 

@@ -58,7 +58,7 @@ where
         todo!()
     }
 
-    fn prepare_tx<M: cosmrs::proto::traits::Message>(
+    fn prepare_tx<M: secretrs::proto::traits::Message>(
         &self,
         msg: M,
         tx_options: TxOptions,

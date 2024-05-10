@@ -105,7 +105,11 @@ where
         todo!()
     }
 
-    fn prepare_tx<M: cosmrs::tx::Msg>(&self, msg: M, tx_options: TxOptions) -> BroadcastTxRequest {
+    fn prepare_tx<M: secretrs::tx::Msg>(
+        &self,
+        msg: M,
+        tx_options: TxOptions,
+    ) -> BroadcastTxRequest {
         let request = BroadcastTxRequest {
             tx_bytes: vec![],
             mode: tx_options.broadcast_mode.into(),

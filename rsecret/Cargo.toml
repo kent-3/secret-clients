@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # blockchain
 secretrs = { version = "0.1.0-beta.2", features = ["grpc"] }
-cosmrs = { version = "0.16.0" }
+# cosmrs = { version = "0.16.0" }
 # secret-sdk-proto = { version = "0.1.0", default-features = false, path = "../secret-sdk-proto" }
 cosmwasm-std = { version = "=1.1.11", package = "secret-cosmwasm-std" }
 bip32 = "0.5.1"
