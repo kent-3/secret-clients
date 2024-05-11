@@ -67,10 +67,25 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    pub async fn contract_info(&self, contract_address: impl Into<String>) -> Result<ContractInfo> {
+    pub async fn contract_info(
+        &self,
+        contract_address: impl Into<String>,
+    ) -> Result<QueryContractInfoResponse> {
         let contract_address = contract_address.into();
         let request = QueryByContractAddressRequest { contract_address };
-        let response: QueryContractInfoResponse = todo!();
+        self.inner
+            .clone()
+            .contract_info(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
+        //     .map(|x| {
+        //         x.contract_info.ok_or(secretrs::Error::MissingField {
+        //             name: "contract_info",
+        //         })
+        //     })?;
+        //
+        // Ok(response?)
     }
 
     pub async fn contracts_by_code_id(
@@ -145,26 +160,31 @@ where
         Ok(response.entries)
     }
 
-    pub async fn query_secret_contract(
-        &self,
-        request: QuerySecretContractRequest,
-        // TODO - make it possible to call without code_hash? by computing it from contract_address
-        // and saving it in the code_hash_cache.
-        code_hash: impl Into<String>,
-    ) -> Result<(String, String)> {
-        let code_hash = code_hash.into();
-        let query = &request.query;
+    // TODO: make it possible to call without code_hash? by computing it from contract_address
+    // and saving it in the code_hash_cache.
 
-        // TODO - read the chain_id from somewhere
+    /// Returns a JSON string of the query response.
+    pub async fn query_secret_contract<M: ::serde::Serialize>(
+        &self,
+        contract_address: impl Into<String>,
+        code_hash: impl Into<String>,
+        query: M,
+    ) -> Result<String> {
+        let contract_address = contract_address.into();
+        let code_hash = code_hash.into();
+
         let encrypted = self.encryption_utils.encrypt(&code_hash, &query)?;
         let nonce = encrypted.nonce();
         let query = encrypted.into_inner();
 
         let mut compute = self.inner.clone();
 
-        let req = QuerySecretContractRequest { query, ..request };
+        let req = QuerySecretContractRequest {
+            contract_address,
+            query,
+        };
 
-        // TODO - needs work...
+        // TODO: needs work...
         // should we return the metadata (x-cosmos-block-height) with the data?
         let response = match compute.query_secret_contract(req).await {
             Ok(response) => {
@@ -174,13 +194,14 @@ where
                 let decoded_bytes = BASE64_STANDARD.decode(decrypted_b64_string)?;
                 let data = String::from_utf8(decoded_bytes)?;
 
-                let http_headers = metadata.into_headers();
-                let block_height = http_headers
-                    .get("x-cosmos-block-height")
-                    .ok_or("Missing header")?
-                    .to_str()?;
+                // let http_headers = metadata.into_headers();
+                // let block_height = http_headers
+                //     .get("x-cosmos-block-height")
+                //     .ok_or("Missing header")?
+                //     .to_str()?;
 
-                Ok((data, block_height.to_owned()))
+                // the data is usually padded with spaces
+                Ok(data.trim().to_string())
             }
             Err(status) => {
                 let error_message = status.message();
