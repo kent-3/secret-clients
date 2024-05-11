@@ -6,6 +6,7 @@ pub mod auth;
 pub mod bank;
 pub mod compute;
 pub mod registration;
+mod response_transforms;
 pub mod staking;
 pub mod tendermint;
 pub mod tx;

@@ -33,6 +33,7 @@ aes-siv = "0.7.0"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 # errors
+anyhow = "1.0.83"
 thiserror = "1.0.51"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

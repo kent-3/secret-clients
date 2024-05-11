@@ -1,11 +1,15 @@
-use super::{Error, Result};
+// use anyhow::{Error, Result};
+use crate::{Error, Result};
 use secretrs::grpc_clients::TendermintServiceClient;
 use secretrs::proto::cosmos::base::tendermint::v1beta1::{
     AbciQueryRequest, AbciQueryResponse, GetBlockByHeightRequest, GetBlockByHeightResponse,
-    GetLatestBlockRequest, GetLatestBlockResponse, GetLatestValidatorSetRequest,
-    GetLatestValidatorSetResponse, GetNodeInfoRequest, GetNodeInfoResponse, GetSyncingRequest,
-    GetSyncingResponse, GetValidatorSetByHeightRequest, GetValidatorSetByHeightResponse,
+    GetLatestBlockRequest, GetLatestBlockResponse as GetLatestBlockResponseProto,
+    GetLatestValidatorSetRequest, GetLatestValidatorSetResponse, GetNodeInfoRequest,
+    GetNodeInfoResponse, GetSyncingRequest, GetSyncingResponse, GetValidatorSetByHeightRequest,
+    GetValidatorSetByHeightResponse,
 };
+use secretrs::tendermint::block::{Block, Height, Id};
+// use secretrs::ErrorReport;
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]
@@ -39,7 +43,8 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    pub async fn get_node_info(&self, request: GetNodeInfoRequest) -> Result<GetNodeInfoResponse> {
+    pub async fn get_node_info(&self) -> Result<GetNodeInfoResponse> {
+        let request = GetNodeInfoRequest {};
         self.inner
             .clone()
             .get_node_info(request)
@@ -47,7 +52,8 @@ where
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
     }
-    pub async fn get_syncing(&self, request: GetSyncingRequest) -> Result<GetSyncingResponse> {
+    pub async fn get_syncing(&self) -> Result<GetSyncingResponse> {
+        let request = GetSyncingRequest {};
         self.inner
             .clone()
             .get_syncing(request)
@@ -55,21 +61,23 @@ where
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
     }
-    pub async fn get_latest_block(
-        &self,
-        request: GetLatestBlockRequest,
-    ) -> Result<GetLatestBlockResponse> {
-        self.inner
+    pub async fn get_latest_block(&self) -> Result<transforms::GetLatestBlockResponse> {
+        let request = GetLatestBlockRequest {};
+        let response: GetLatestBlockResponseProto = self
+            .inner
             .clone()
             .get_latest_block(request)
             .await
-            .map_err(Into::into)
-            .map(::tonic::Response::into_inner)
+            .map(::tonic::Response::into_inner)?;
+
+        Ok(response.try_into()?)
     }
     pub async fn get_block_by_height(
         &self,
-        request: GetBlockByHeightRequest,
+        height: impl Into<Height>,
     ) -> Result<GetBlockByHeightResponse> {
+        let height = i64::from(height.into());
+        let request = GetBlockByHeightRequest { height };
         self.inner
             .clone()
             .get_block_by_height(request)
@@ -106,5 +114,50 @@ where
             .await
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
+    }
+}
+
+mod transforms {
+    use secretrs::proto;
+    use secretrs::tendermint::block::{Block, Id};
+    use secretrs::{Error, ErrorReport, Result};
+
+    #[derive(Debug, Clone)]
+    pub struct GetLatestBlockResponse {
+        pub block_id: Id,
+        pub block: Block,
+    }
+
+    impl TryFrom<proto::cosmos::base::tendermint::v1beta1::GetLatestBlockResponse>
+        for GetLatestBlockResponse
+    {
+        type Error = ErrorReport;
+
+        fn try_from(
+            proto: proto::cosmos::base::tendermint::v1beta1::GetLatestBlockResponse,
+        ) -> Result<GetLatestBlockResponse> {
+            Ok(GetLatestBlockResponse {
+                block_id: proto
+                    .block_id
+                    .ok_or(Error::MissingField { name: "block_id" })?
+                    .try_into()?,
+                block: proto
+                    .block
+                    .ok_or(Error::MissingField { name: "block" })?
+                    .try_into()?,
+            })
+        }
+    }
+
+    impl From<GetLatestBlockResponse>
+        for proto::cosmos::base::tendermint::v1beta1::GetLatestBlockResponse
+    {
+        fn from(value: GetLatestBlockResponse) -> Self {
+            Self {
+                block_id: Some(value.block_id.into()),
+                block: Some(value.block.into()),
+                sdk_block: None,
+            }
+        }
     }
 }
