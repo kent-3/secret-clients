@@ -79,39 +79,41 @@ where
             .await
             .map_err(Into::into)
             .map(::tonic::Response::into_inner)
-        //     .map(|x| {
-        //         x.contract_info.ok_or(secretrs::Error::MissingField {
-        //             name: "contract_info",
-        //         })
-        //     })?;
-        //
-        // Ok(response?)
     }
 
     pub async fn contracts_by_code_id(
         &self,
         code_id: impl Into<u64>,
-    ) -> Result<Vec<ContractInfoWithAddress>> {
+    ) -> Result<QueryContractsByCodeIdResponse> {
         let code_id = code_id.into();
         let request = QueryByCodeIdRequest { code_id };
-        let response: QueryContractsByCodeIdResponse = todo!();
-
-        Ok(response.contract_infos)
+        self.inner
+            .clone()
+            .contracts_by_code_id(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
     }
 
     pub async fn code(&self, code_id: impl Into<u64>) -> Result<QueryCodeResponse> {
         let code_id = code_id.into();
         let request = QueryByCodeIdRequest { code_id };
-        let response: QueryCodeResponse = todo!();
-
-        Ok(response)
+        self.inner
+            .clone()
+            .code(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
     }
 
     pub async fn codes(&self) -> Result<QueryCodesResponse> {
         let request = ();
-        let response: QueryCodesResponse = todo!();
-
-        Ok(response)
+        self.inner
+            .clone()
+            .codes(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
     }
 
     pub async fn code_hash_by_contract_address(
@@ -120,44 +122,63 @@ where
     ) -> Result<String> {
         let contract_address = contract_address.into();
         let request = QueryByContractAddressRequest { contract_address };
-        let response: QueryCodeHashResponse = todo!();
-
-        Ok(response.code_hash)
+        self.inner
+            .clone()
+            .code_hash_by_contract_address(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
+            .map(|resp| resp.code_hash)
     }
 
     pub async fn code_hash_by_code_id(&self, code_id: impl Into<u64>) -> Result<String> {
         let code_id = code_id.into();
         let request = QueryByCodeIdRequest { code_id };
-        let response: QueryCodeHashResponse = todo!();
-
-        Ok(response.code_hash)
+        self.inner
+            .clone()
+            .code_hash_by_code_id(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
+            .map(|resp| resp.code_hash)
     }
 
     pub async fn label_by_address(&self, contract_address: impl Into<String>) -> Result<String> {
         let contract_address = contract_address.into();
         let request = QueryByContractAddressRequest { contract_address };
-        let response: QueryContractLabelResponse = todo!();
-
-        Ok(response.label)
+        self.inner
+            .clone()
+            .label_by_address(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
+            .map(|resp| resp.label)
     }
 
     pub async fn address_by_label(&self, label: impl Into<String>) -> Result<String> {
         let label = label.into();
         let request = QueryByLabelRequest { label };
-        let response: QueryContractAddressResponse = todo!();
-
-        Ok(response.contract_address)
+        self.inner
+            .clone()
+            .address_by_label(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
+            .map(|resp| resp.contract_address)
     }
 
     pub async fn contract_history(
         &self,
         contract_address: impl Into<String>,
-    ) -> Result<Vec<ContractCodeHistoryEntry>> {
+    ) -> Result<QueryContractHistoryResponse> {
         let contract_address = contract_address.into();
         let request = QueryContractHistoryRequest { contract_address };
-        let response: QueryContractHistoryResponse = todo!();
-
-        Ok(response.entries)
+        self.inner
+            .clone()
+            .contract_history(request)
+            .await
+            .map_err(Into::into)
+            .map(::tonic::Response::into_inner)
     }
 
     // TODO: make it possible to call without code_hash? by computing it from contract_address
