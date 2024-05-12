@@ -16,6 +16,7 @@ use secretrs::{
     Any,
 };
 use tonic::codegen::{Body, Bytes, StdError};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
 pub struct AuthQuerier<T> {
@@ -97,7 +98,7 @@ where
         let http_headers = metadata.into_headers();
         let block_height = http_headers.get("x-cosmos-block-height");
 
-        log::debug!("x-cosmos-block-height: {:?}", block_height);
+        debug!("x-cosmos-block-height: {:?}", block_height);
 
         if let Some(any) = response.account {
             match any.type_url.as_str() {

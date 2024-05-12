@@ -106,8 +106,8 @@ impl AminoWallet {
         let path = format!("m/44'/{coin_type}'/0'/0/{hd_account_index}")
             .parse()
             .expect("invalid scrt derivation path");
-        let secret_hd =
-            bip32::XPrv::derive_from_path(seed, &path).expect("private key derivation failed");
+        let secret_hd = secretrs::bip32::XPrv::derive_from_path(seed, &path)
+            .expect("private key derivation failed");
 
         let private_key = SigningKey::from(&secret_hd);
         let public_key = private_key.public_key();

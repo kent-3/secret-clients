@@ -1,26 +1,42 @@
 #![allow(unused)]
 
-use color_eyre::owo_colors::OwoColorize;
 use rsecret::{CreateClientOptions, Result, SecretNetworkClient, TxOptions};
-use secretrs::compute::ContractInfo;
-use secretrs::proto::cosmos::base::tendermint::v1beta1::{
-    GetBlockByHeightResponse, GetLatestBlockResponse, GetLatestValidatorSetResponse,
-    GetNodeInfoResponse, GetSyncingResponse, GetValidatorSetByHeightResponse,
+use secretrs::{
+    compute::ContractInfo,
+    proto::{
+        cosmos::{
+            base::tendermint::v1beta1::{
+                GetBlockByHeightResponse, GetLatestBlockResponse, GetLatestValidatorSetResponse,
+                GetNodeInfoResponse, GetSyncingResponse, GetValidatorSetByHeightResponse,
+            },
+            tx::v1beta1::OrderBy,
+        },
+        secret::compute::v1beta1::{
+            QueryByCodeIdRequest, QueryCodeResponse, QueryCodesResponse,
+            QueryContractHistoryResponse, QueryContractInfoResponse, QueryContractLabelResponse,
+            QuerySecretContractRequest,
+        },
+    },
+    tendermint::Block,
 };
-use secretrs::proto::secret::compute::v1beta1::{
-    QueryByCodeIdRequest, QueryCodeResponse, QueryCodesResponse, QueryContractHistoryResponse,
-    QueryContractInfoResponse, QueryContractLabelResponse, QuerySecretContractRequest,
-};
-use secretrs::{proto::cosmos::tx::v1beta1::OrderBy, tendermint::Block};
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tracing::{debug, info, trace};
+use tracing_subscriber::{fmt::format::DefaultFields, EnvFilter};
 
 const GRPC_URL: &str = "http://grpc.testnet.secretsaturn.net:9090";
 const CHAIN_ID: &str = "pulsar-3";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    ::tracing_subscriber::fmt()
+        .pretty()
+        .without_time()
+        .with_line_number(false)
+        .with_file(false)
+        .with_env_filter(EnvFilter::new(
+            "debug,rsecret=debug,hyper=info,h2=info,tower=info,tonic=info",
+        ))
+        .init();
 
     let contract_address = "secret19gtpkk25r0c36gtlyrc6repd3q52ngmkpfszw3";
     let code_hash = "9a00ca4ad505e9be7e6e6dddf8d939b7ec7e9ac8e109c8681f10db9cacb36d42";
@@ -33,17 +49,16 @@ async fn main() -> Result<()> {
     };
 
     let secretrs = SecretNetworkClient::connect(options).await?;
-    println!(" {}", "SecretNetworkClient created".blue().bold());
-    // println!("{:#?}", secretrs.blue());
+    info!("SecretNetworkClient created");
 
     // TODO: figure out a unified approach for the response types.
     // For example, this GetLatestBlockResponse is different from the protobuf one.
     // (because I made it that way - it uses the extended types from cosmrs)
     // I could have a `try_into` for every response type, but that's a lot of work!
     let latest_block = secretrs.query.tendermint.get_latest_block().await?;
-    // println!(" {:#?}", latest_block.yellow());
-    let latest_block_height = latest_block.block.header.height;
-    println!(" Latest block: {:#?}", latest_block_height.yellow());
+    debug!("{:?}", latest_block);
+    let latest_block_height = latest_block.header.height;
+    info!("{:?}", latest_block_height);
 
     // it works!
     // let secret_contract_response = secretrs

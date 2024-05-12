@@ -1,8 +1,8 @@
 #![allow(unused)]
 
 use hex::decode;
-use log::{debug, info, trace, warn};
 use serde::Deserialize;
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     query::Querier,
