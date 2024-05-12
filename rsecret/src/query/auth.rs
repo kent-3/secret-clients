@@ -54,7 +54,10 @@ where
         let response: ::tonic::Response<QueryParamsResponse> =
             self.inner.clone().params(request).await?;
 
-        response.into_inner().params.ok_or("params empty".into())
+        response
+            .into_inner()
+            .params
+            .ok_or(Error::MissingField { name: "params" })
 
         // example showing how to add block height headers to a request:
         //

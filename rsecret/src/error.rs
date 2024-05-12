@@ -12,6 +12,9 @@ pub enum Error {
     ErrorWithData {
         data: String,
     },
+    MissingField {
+        name: &'static str,
+    },
 
     #[from]
     FromUtf8(std::string::FromUtf8Error),

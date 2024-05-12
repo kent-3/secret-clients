@@ -322,6 +322,36 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
     // }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
+    pub fn new(
+        client: ::tonic_web_wasm_client::Client,
+        options: CreateClientOptions,
+    ) -> Result<Self> {
+        let url = options.url;
+
+        let query = Querier::new(client.clone(), &options);
+        let tx = TxSender::new(client.clone(), &options);
+        // let tx_options = Arc::new(TxOptions::default());
+
+        let wallet = options.wallet;
+        let address = options.wallet_address.unwrap_or_default();
+        let chain_id = options.chain_id;
+
+        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)?;
+
+        Ok(Self {
+            url,
+            query,
+            tx,
+            wallet,
+            address,
+            chain_id,
+            encryption_utils,
+        })
+    }
+}
+
 impl<T> SecretNetworkClient<T>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
@@ -690,7 +720,7 @@ where
     }
 }
 
-// TODO: we needsome generic 'Msg' type to be used in all these methods.
+// TODO: we need some generic 'Msg' type to be used in all these methods.
 // I think one exists in cosmrs... but that probably won't have a to_amino method
 //
 // pub struct ProtoMsg {
