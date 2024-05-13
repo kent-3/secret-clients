@@ -2,7 +2,9 @@ use super::{Error, Result};
 use crate::CreateClientOptions;
 use secretrs::{
     grpc_clients::RegistrationQueryClient,
-    proto::secret::registration::v1beta1::{QueryEncryptedSeedRequest, QueryEncryptedSeedResponse},
+    proto::secret::registration::v1beta1::{
+        Key, QueryEncryptedSeedRequest, QueryEncryptedSeedResponse,
+    },
 };
 use tonic::codegen::{Body, Bytes, StdError};
 
@@ -41,5 +43,31 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    // TODO:
+    /// Returns the key used for transactions
+    pub async fn tx_key(&self) -> Result<Key> {
+        let request = ();
+        let response: ::tonic::Response<Key> = self.inner.clone().tx_key(request).await?;
+
+        let key = response.into_inner();
+        Ok(key)
+    }
+
+    /// Returns the key used for registration
+    pub async fn registration_key(&self) -> Result<Key> {
+        let request = ();
+        let response: ::tonic::Response<Key> = self.inner.clone().registration_key(request).await?;
+
+        let key = response.into_inner();
+        Ok(key)
+    }
+
+    /// Returns the encrypted seed for a registered node by public key
+    pub async fn encrypted_seed(&self, pub_key: Vec<u8>) -> Result<Vec<u8>> {
+        let request = QueryEncryptedSeedRequest { pub_key };
+        let response: ::tonic::Response<QueryEncryptedSeedResponse> =
+            self.inner.clone().encrypted_seed(request).await?;
+
+        let encrypted_seed = response.into_inner().encrypted_seed;
+        Ok(encrypted_seed)
+    }
 }
