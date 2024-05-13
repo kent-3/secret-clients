@@ -9,6 +9,7 @@ use secretrs::{
                 GetBlockByHeightResponse, GetLatestBlockResponse, GetLatestValidatorSetResponse,
                 GetNodeInfoResponse, GetSyncingResponse, GetValidatorSetByHeightResponse,
             },
+            staking::v1beta1::BondStatus,
             tx::v1beta1::OrderBy,
         },
         secret::compute::v1beta1::{
@@ -25,6 +26,8 @@ use tracing_subscriber::{fmt::format::DefaultFields, EnvFilter};
 
 const GRPC_URL: &str = "http://grpc.testnet.secretsaturn.net:9090";
 const CHAIN_ID: &str = "pulsar-3";
+// const GRPC_URL: &str = "http://grpc.mainnet.secretsaturn.net:9090";
+// const CHAIN_ID: &str = "secret-4";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -34,7 +37,7 @@ async fn main() -> Result<()> {
         .with_line_number(false)
         .with_file(false)
         .with_env_filter(EnvFilter::new(
-            "debug,rsecret=debug,hyper=info,h2=info,tower=info,tonic=info",
+            "debug,rsecret=debug,hyper=debug,h2=debug,tower=debug,tonic=debug",
         ))
         .init();
 
@@ -50,15 +53,33 @@ async fn main() -> Result<()> {
 
     let secretrs = SecretNetworkClient::connect(options).await?;
     info!("SecretNetworkClient created");
+    // debug!("{:#?}", secretrs);
 
-    // TODO: figure out a unified approach for the response types.
-    // For example, this GetLatestBlockResponse is different from the protobuf one.
-    // (because I made it that way - it uses the extended types from cosmrs)
-    // I could have a `try_into` for every response type, but that's a lot of work!
     let latest_block = secretrs.query.tendermint.get_latest_block().await?;
-    debug!("{:?}", latest_block);
+    // debug!("{:?}", latest_block);
     let latest_block_height = latest_block.header.height;
     info!("{:?}", latest_block_height);
+
+    use secretrs::proto::cosmos::base::query::v1beta1::PageRequest;
+    let pagination = Some(PageRequest {
+        key: vec![],
+        offset: 0,
+        limit: 10,
+        count_total: true,
+        reverse: false,
+    });
+
+    // let validators = secretrs
+    //     .query
+    //     .staking
+    //     .validators(BondStatus::Bonded, pagination)
+    //     .await?;
+    let validators = secretrs.all_validators().await?;
+    let validator_monikers: Vec<String> = validators
+        .into_iter()
+        .map(|v| v.description.unwrap_or_default().moniker)
+        .collect();
+    info!("{:?}", validator_monikers);
 
     // it works!
     // let secret_contract_response = secretrs

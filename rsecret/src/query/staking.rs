@@ -1,5 +1,6 @@
 use crate::CreateClientOptions;
 use crate::{Error, Result};
+use secretrs::proto::cosmos::staking::v1beta1::BondStatus;
 use secretrs::tendermint::block::Height;
 use secretrs::{
     grpc_clients::StakingQueryClient,
@@ -23,11 +24,13 @@ use secretrs::{
         },
     },
 };
+use tonic::codec::CompressionEncoding;
 use tonic::codegen::{Body, Bytes, StdError};
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct StakingQuerier<T> {
-    inner: StakingQueryClient<T>,
+    pub(crate) inner: StakingQueryClient<T>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -62,33 +65,49 @@ where
 {
     pub async fn validators(
         &self,
-        status: impl Into<String>,
+        status: BondStatus,
         pagination: Option<PageRequest>,
     ) -> Result<Vec<Validator>> {
-        let status = status.into();
-        let request = QueryValidatorsRequest {
-            status: status.clone(),
-            pagination: pagination.clone(),
-        };
-        let response: ::tonic::Response<QueryValidatorsResponse> =
-            self.inner.clone().validators(request).await?;
+        let mut all_validators = Vec::new();
+        let mut current_page = pagination;
+        let mut total_pages: Option<u64> = None;
 
-        // TODO: check pagination works
-        let response = response.into_inner();
-        let mut validators = response.validators;
-        if let Some(page_request) = pagination {
+        loop {
+            let request = QueryValidatorsRequest {
+                status: status.as_str_name().to_string(),
+                pagination: current_page.clone(),
+            };
+            let response = self.inner.clone().validators(request).await?;
+            let response = response.into_inner();
+            let validators = response.validators;
+            all_validators.extend(validators);
+
             if let Some(page_response) = response.pagination {
-                if !page_response.next_key.is_empty() {
-                    let next_page = PageRequest {
-                        key: page_response.next_key,
-                        ..page_request
-                    };
-                    let more_validators = self.validators(status, Some(next_page)).await?;
-                    validators.extend(more_validators);
+                debug!("{:?}", current_page.as_ref().unwrap());
+                debug!("{:?}", page_response);
+                if total_pages.is_none() && page_response.total > 0 {
+                    let total_count = page_response.total;
+                    let limit = current_page.as_ref().unwrap().limit;
+                    total_pages = Some((total_count + limit - 1) / limit);
+                    debug!("Total pages needed: {}", total_pages.unwrap());
+                    if total_pages.unwrap() > 10 {
+                        warn!("That's a lot of pages!");
+                    }
                 }
+                if page_response.next_key.is_empty() {
+                    break;
+                } else {
+                    current_page = Some(PageRequest {
+                        key: page_response.next_key,
+                        ..current_page.unwrap_or_default()
+                    });
+                }
+            } else {
+                break;
             }
         }
-        Ok(validators)
+
+        Ok(all_validators)
     }
 
     pub async fn validator(&self, validator_addr: impl Into<String>) -> Result<Validator> {
@@ -111,31 +130,35 @@ where
         pagination: Option<PageRequest>,
     ) -> Result<Vec<DelegationResponse>> {
         let validator_addr = validator_addr.into();
-        let request = QueryValidatorDelegationsRequest {
-            validator_addr: validator_addr.clone(),
-            pagination: pagination.clone(),
-        };
-        let response: ::tonic::Response<QueryValidatorDelegationsResponse> =
-            self.inner.clone().validator_delegations(request).await?;
 
-        // TODO: check pagination works
-        let response = response.into_inner();
-        let mut delegation_responses = response.delegation_responses;
-        if let Some(page_request) = pagination {
+        let mut all_delegation_responses = Vec::new();
+        let mut current_page = pagination;
+
+        loop {
+            let request = QueryValidatorDelegationsRequest {
+                validator_addr: validator_addr.clone(),
+                pagination: current_page.clone(),
+            };
+            let response: ::tonic::Response<QueryValidatorDelegationsResponse> =
+                self.inner.clone().validator_delegations(request).await?;
+            let response = response.into_inner();
+            let delegation_responses = response.delegation_responses;
+            all_delegation_responses.extend(delegation_responses);
+
             if let Some(page_response) = response.pagination {
-                if !page_response.next_key.is_empty() {
-                    let next_page = PageRequest {
+                if page_response.next_key.is_empty() {
+                    break;
+                } else {
+                    current_page = Some(PageRequest {
                         key: page_response.next_key,
-                        ..page_request
-                    };
-                    let more_delegation_responses = self
-                        .validator_delegations(validator_addr, Some(next_page))
-                        .await?;
-                    delegation_responses.extend(more_delegation_responses);
+                        ..current_page.unwrap_or_default()
+                    });
                 }
+            } else {
+                break;
             }
         }
-        Ok(delegation_responses)
+        Ok(all_delegation_responses)
     }
 
     pub async fn validator_unbonding_delegations(
