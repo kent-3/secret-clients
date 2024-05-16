@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-
 use super::{Error, Result};
 use crate::CreateClientOptions;
-use secretrs::{
+use base64::prelude::{Engine as _, BASE64_STANDARD};
+use regex::Regex;
+pub use secretrs::{
     grpc_clients::ComputeQueryClient,
     proto::secret::compute::v1beta1::{
         ContractCodeHistoryEntry, ContractInfo, ContractInfoWithAddress, QueryByCodeIdRequest,
@@ -12,12 +12,9 @@ use secretrs::{
         QueryContractLabelResponse, QueryContractsByCodeIdResponse, QuerySecretContractRequest,
         QuerySecretContractResponse,
     },
-    utils::encryption::SecretMsg,
-    EncryptionUtils,
 };
-
-use base64::prelude::{Engine as _, BASE64_STANDARD};
-use regex::Regex;
+use secretrs::{utils::encryption::SecretMsg, EncryptionUtils};
+use std::collections::HashMap;
 use tonic::{
     async_trait,
     codegen::{Body, Bytes, StdError},

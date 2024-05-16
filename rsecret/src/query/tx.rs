@@ -1,9 +1,11 @@
 use super::{Error, Result};
-use secretrs::grpc_clients::TxServiceClient;
-use secretrs::proto::cosmos::tx::v1beta1::{
-    BroadcastTxRequest, BroadcastTxResponse, GetBlockWithTxsRequest, GetBlockWithTxsResponse,
-    GetTxRequest, GetTxResponse, GetTxsEventRequest, GetTxsEventResponse, SimulateRequest,
-    SimulateResponse,
+pub use secretrs::{
+    grpc_clients::TxServiceClient,
+    proto::cosmos::tx::v1beta1::{
+        BroadcastTxRequest, BroadcastTxResponse, GetBlockWithTxsRequest, GetBlockWithTxsResponse,
+        GetTxRequest, GetTxResponse, GetTxsEventRequest, GetTxsEventResponse, SimulateRequest,
+        SimulateResponse,
+    },
 };
 use tonic::codegen::{Body, Bytes, StdError};
 

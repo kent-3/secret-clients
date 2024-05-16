@@ -1,13 +1,11 @@
 use crate::CreateClientOptions;
 use crate::{Error, Result};
-use secretrs::proto::cosmos::staking::v1beta1::BondStatus;
-use secretrs::tendermint::block::Height;
-use secretrs::{
+pub use secretrs::{
     grpc_clients::StakingQueryClient,
     proto::cosmos::{
         base::query::v1beta1::PageRequest,
         staking::v1beta1::{
-            DelegationResponse, HistoricalInfo, Params, Pool, QueryDelegationRequest,
+            BondStatus, DelegationResponse, HistoricalInfo, Params, Pool, QueryDelegationRequest,
             QueryDelegationResponse, QueryDelegatorDelegationsRequest,
             QueryDelegatorDelegationsResponse, QueryDelegatorUnbondingDelegationsRequest,
             QueryDelegatorUnbondingDelegationsResponse, QueryDelegatorValidatorRequest,
@@ -23,8 +21,8 @@ use secretrs::{
             UnbondingDelegation, Validator,
         },
     },
+    tendermint::block::Height,
 };
-use tonic::codec::CompressionEncoding;
 use tonic::codegen::{Body, Bytes, StdError};
 use tracing::{debug, warn};
 

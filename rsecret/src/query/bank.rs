@@ -1,5 +1,5 @@
 use super::{Error, Result};
-use secretrs::{grpc_clients::BankQueryClient, proto::cosmos::bank::v1beta1::*};
+pub use secretrs::{grpc_clients::BankQueryClient, proto::cosmos::bank::v1beta1::*};
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]

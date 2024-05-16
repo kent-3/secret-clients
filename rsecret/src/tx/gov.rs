@@ -1,17 +1,16 @@
-// #![allow(unused)]
-
 use super::{Error, Result};
 use crate::TxOptions;
+pub use secretrs::proto::cosmos::gov::v1beta1::{
+    MsgDeposit, MsgSubmitProposal, MsgVote, MsgVoteWeighted,
+};
 use secretrs::{
     grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
-        gov::v1beta1::{MsgDeposit, MsgSubmitProposal, MsgVote, MsgVoteWeighted},
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},
     },
     tx::{BodyBuilder, Msg, Raw, SignDoc, Tx},
 };
-use std::sync::Arc;
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]

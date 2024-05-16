@@ -1,6 +1,6 @@
 use super::{Error, Result};
 use crate::CreateClientOptions;
-use secretrs::{
+pub use secretrs::{
     grpc_clients::RegistrationQueryClient,
     proto::secret::registration::v1beta1::{
         Key, QueryEncryptedSeedRequest, QueryEncryptedSeedResponse,

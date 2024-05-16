@@ -1,9 +1,7 @@
-#![allow(unused)]
-
 use super::{Error, Result};
 use crate::{CreateClientOptions, TxOptions};
+pub use secretrs::compute::{MsgExecuteContract, MsgInstantiateContract, MsgStoreCode};
 use secretrs::{
-    compute::{MsgExecuteContract, MsgInstantiateContract, MsgStoreCode},
     grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
@@ -13,7 +11,6 @@ use secretrs::{
     EncryptionUtils,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]

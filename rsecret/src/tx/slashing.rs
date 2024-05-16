@@ -1,17 +1,14 @@
-// #![allow(unused)]
-
 use super::{Error, Result};
 use crate::TxOptions;
+pub use secretrs::proto::cosmos::slashing::v1beta1::MsgUnjail;
 use secretrs::{
     grpc_clients::TxServiceClient,
     proto::cosmos::{
         base::abci::v1beta1::TxResponse,
-        slashing::v1beta1::MsgUnjail,
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},
     },
     tx::{BodyBuilder, Msg, Raw, SignDoc, Tx},
 };
-use std::sync::Arc;
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]

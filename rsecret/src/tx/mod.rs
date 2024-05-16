@@ -24,8 +24,8 @@ pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
 use crate::{CreateClientOptions, TxOptions};
-use secretrs::grpc_clients::TxServiceClient;
-use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
+pub use secretrs::grpc_clients::TxServiceClient;
+pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]

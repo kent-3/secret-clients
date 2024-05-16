@@ -1,7 +1,7 @@
 use crate::{Error, Result};
 use secretrs::grpc_clients::TendermintServiceClient;
 use secretrs::proto::cosmos::base::query::v1beta1::PageRequest;
-use secretrs::proto::cosmos::base::tendermint::v1beta1::{
+pub use secretrs::proto::cosmos::base::tendermint::v1beta1::{
     AbciQueryRequest, AbciQueryResponse, GetBlockByHeightRequest, GetBlockByHeightResponse,
     GetLatestBlockRequest, GetLatestBlockResponse, GetLatestValidatorSetRequest,
     GetLatestValidatorSetResponse, GetNodeInfoRequest, GetNodeInfoResponse, GetSyncingRequest,
@@ -40,19 +40,21 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    pub async fn get_node_info(&self) -> Result<DefaultNodeInfo> {
+    pub async fn get_node_info(&self) -> Result<GetNodeInfoResponse> {
         let request = GetNodeInfoRequest {};
         let response: ::tonic::Response<GetNodeInfoResponse> =
             self.inner.clone().get_node_info(request).await?;
 
-        let default_node_info =
-            response
-                .into_inner()
-                .default_node_info
-                .ok_or(Error::MissingField {
-                    name: "default_node_info",
-                })?;
-        Ok(default_node_info)
+        Ok(response.into_inner())
+
+        // let default_node_info =
+        //     response
+        //         .into_inner()
+        //         .default_node_info
+        //         .ok_or(Error::MissingField {
+        //             name: "default_node_info",
+        //         })?;
+        // Ok(default_node_info)
     }
 
     pub async fn get_syncing(&self) -> Result<bool> {

@@ -1,6 +1,6 @@
 use super::{Error, Result};
 use prost::Message;
-use secretrs::{
+pub use secretrs::{
     grpc_clients::AuthQueryClient,
     proto::cosmos::auth::v1beta1::{
         AddressBytesToStringRequest, AddressBytesToStringResponse, AddressStringToBytesRequest,
@@ -13,7 +13,6 @@ use secretrs::{
     },
     proto::cosmos::vesting::v1beta1::{ContinuousVestingAccount, DelayedVestingAccount},
     query::PageRequest,
-    Any,
 };
 use tonic::codegen::{Body, Bytes, StdError};
 use tracing::{debug, info};

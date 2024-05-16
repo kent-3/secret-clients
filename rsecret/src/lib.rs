@@ -12,9 +12,9 @@
 
 pub mod bonus;
 mod error;
-mod query;
-mod secret_network_client;
-mod tx;
+pub mod query;
+pub mod secret_network_client;
+pub mod tx;
 pub mod wallet;
 
 pub use error::{Error, Result};

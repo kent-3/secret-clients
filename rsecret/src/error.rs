@@ -1,3 +1,5 @@
+// TODO: probably should use thiserror
+
 use derive_more::From;
 
 /// Alias for a `Result` with the error type `module::Error`.
@@ -12,6 +14,7 @@ pub enum Error {
     ErrorWithData {
         data: String,
     },
+
     MissingField {
         name: &'static str,
     },
@@ -19,6 +22,13 @@ pub enum Error {
     #[cfg(not(target_arch = "wasm32"))]
     #[from]
     Tonic(tonic::transport::Error),
+
+    #[from]
+    Status(tonic::Status),
+    #[from]
+    ProstDecode(prost::DecodeError),
+    #[from]
+    ProstEncode(prost::EncodeError),
 
     #[from]
     FromUtf8(std::string::FromUtf8Error),
@@ -34,26 +44,11 @@ pub enum Error {
     #[from]
     ErrorReport(secretrs::ErrorReport),
     #[from]
-    Tendermint(secretrs::tendermint::Error),
-    #[from]
     EncryptionUtils(secretrs::utils::Error),
     #[from]
+    Tendermint(secretrs::tendermint::Error),
+    #[from]
     Bip39(bip39::Error),
-
-    #[from]
-    Status(tonic::Status),
-    #[from]
-    ProstDecode(prost::DecodeError),
-    #[from]
-    ProstEncode(prost::EncodeError),
-    // #[from]
-    // HttpError(http::Error),
-    // #[from]
-    // InvalidUri(hyper::http::uri::InvalidUri),
-    // #[from]
-    // HyperError(hyper::Error),
-    // #[from]
-    // IoError(std::io::Error),
 }
 
 impl Error {
