@@ -54,21 +54,21 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
-    // let secretrs = SecretNetworkClient::connect(options).await?;
-    // info!("SecretNetworkClient created");
-    //
-    // let latest_block = secretrs.query.tendermint.get_latest_block().await?;
-    // let latest_block_height = latest_block.header.height;
-    // info!("{:?}", latest_block_height);
-    //
-    // let validators = secretrs.all_validators().await?;
-    // info!("Validators: {:?}", validators.len());
-    //
-    // let validator_monikers: Vec<String> = validators
-    //     .into_iter()
-    //     .map(|v| v.description.unwrap_or_default().moniker)
-    //     .collect();
-    // info!("{:?}", validator_monikers);
+    let secretrs = SecretNetworkClient::connect(options).await?;
+    info!("SecretNetworkClient created");
+
+    let latest_block = secretrs.query.tendermint.get_latest_block().await?;
+    let latest_block_height = latest_block.header.height;
+    info!("{:?}", latest_block_height);
+
+    let validators = secretrs.all_validators().await?;
+    info!("Validators: {:?}", validators.len());
+
+    let validator_monikers: Vec<String> = validators
+        .into_iter()
+        .map(|v| v.description.unwrap_or_default().moniker)
+        .collect();
+    info!("{:?}", validator_monikers);
 
     // it works!
     //
