@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 # blockchain
-secretrs = { version = "0.1.0-beta.2", features = ["grpc"] }
+# secretrs = { version = "0.1.0-beta.2", features = ["grpc"] }
+secretrs = { version = "0.1.0-beta.3" }
 # cosmwasm-std = { version = "=1.1.11", package = "secret-cosmwasm-std" }
 # bip32 = "0.5.1"
 bip39 = "2.0.0"
@@ -35,6 +36,18 @@ thiserror = "1.0.51"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"] }
+# tonic-web = { version = "0.11.0 "}
+# hyper = { version = "0", features = ["full"] }
+# hyper-util = { version = "0.1", features = ["full"] }
+# http = {version = "0"}
+# hyper-rustls = { version = "0.27.1" }
+# rustls = {version = "0.23.5"}
+# http-body-util = "0.1"
+# http-body = "1.0.0"
+# tower-service = "0.3.2"
+# tower-layer = "0.3.2"
+# tower-http = { version = "0.5.2", features = ["cors"] }
+# tower = {version = "0.4.13", features = ["full"]}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -46,13 +59,17 @@ tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"
 # wasm
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+tonic-web-wasm-client = "0.5.1"
+tonic = { version = "0.11.0", default-features = false, features = ["codegen","prost"] }
 getrandom = { version = "0.2.14", features = ["js"] }
 nanorand = { version = "0.7.0", features = ["getrandom", "zeroize"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+color-eyre = "0.6"
 tokio = { version = "1.37", features = ["rt", "sync", "time", "macros"] }
-tonic-web-wasm-client = "0.5.1"
 wasm-bindgen-test = "0.3.42"
+web-sys = { version = "0.3", features = ["console"]}
 
 [[example]]
 name = "client"

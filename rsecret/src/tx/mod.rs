@@ -90,11 +90,32 @@ impl TxSender<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl TxSender<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_clien::Client) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+        let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());
-        let compute = ComputeServiceClient::new(client.clone());
+        let compute = ComputeServiceClient::new(client.clone(), options);
+        let crisis = CrisisServiceClient::new(client.clone());
+        let distribution = DistributionServiceClient::new(client.clone());
+        let evidence = EvidenceServiceClient::new(client.clone());
+        let feegrant = FeegrantServiceClient::new(client.clone());
+        let gov = GovServiceClient::new(client.clone());
+        let slashing = SlashingServiceClient::new(client.clone());
+        let staking = StakingServiceClient::new(client.clone());
         let tx = TxServiceClient::new(client.clone());
-        Self { bank, compute, tx }
+
+        Self {
+            authz,
+            bank,
+            compute,
+            crisis,
+            distribution,
+            evidence,
+            feegrant,
+            gov,
+            slashing,
+            staking,
+            tx,
+        }
     }
 }
 

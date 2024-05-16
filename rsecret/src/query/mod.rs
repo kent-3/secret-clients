@@ -68,3 +68,27 @@ impl Querier<::tonic::transport::Channel> {
         }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+impl Querier<::tonic_web_wasm_client::Client> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+        let auth = AuthQuerier::new(client.clone());
+        let bank = BankQuerier::new(client.clone());
+        let compute = ComputeQuerier::new(client.clone(), &options);
+        let registration = RegistrationQuerier::new(client.clone());
+        let staking = StakingQuerier::new(client.clone());
+        let tendermint = TendermintQuerier::new(client.clone());
+        let tx = TxQuerier::new(client.clone());
+        //etc
+
+        Self {
+            auth,
+            bank,
+            compute,
+            registration,
+            staking,
+            tendermint,
+            tx,
+        }
+    }
+}

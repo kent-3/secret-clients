@@ -16,6 +16,10 @@ pub enum Error {
         name: &'static str,
     },
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[from]
+    Tonic(tonic::transport::Error),
+
     #[from]
     FromUtf8(std::string::FromUtf8Error),
     #[from]
@@ -37,13 +41,19 @@ pub enum Error {
     Bip39(bip39::Error),
 
     #[from]
-    Tonic(tonic::transport::Error),
-    #[from]
     Status(tonic::Status),
     #[from]
     ProstDecode(prost::DecodeError),
     #[from]
     ProstEncode(prost::EncodeError),
+    // #[from]
+    // HttpError(http::Error),
+    // #[from]
+    // InvalidUri(hyper::http::uri::InvalidUri),
+    // #[from]
+    // HyperError(hyper::Error),
+    // #[from]
+    // IoError(std::io::Error),
 }
 
 impl Error {

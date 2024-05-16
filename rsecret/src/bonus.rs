@@ -1,7 +1,7 @@
-use crate::{Error, Result, SecretNetworkClient};
+use crate::{Result, SecretNetworkClient};
 use secretrs::proto::cosmos::staking::v1beta1::{BondStatus, Validator};
 use tonic::codegen::{Body, Bytes, StdError};
-use tracing::{debug, warn};
+use tracing::debug;
 
 impl<T> SecretNetworkClient<T>
 where
@@ -20,7 +20,7 @@ where
         let mut current_page = Some(PageRequest {
             key: vec![],
             offset: 0,
-            limit: 30,
+            limit: 100,
             count_total: true,
             reverse: false,
         });

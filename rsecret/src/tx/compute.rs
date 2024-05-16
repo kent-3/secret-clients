@@ -53,9 +53,16 @@ impl ComputeServiceClient<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl ComputeServiceClient<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
         let inner = TxServiceClient::new(client);
-        Self { inner }
+        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)
+            .expect("failed to create EncryptionUtils");
+        let code_hash_cache = HashMap::new();
+        Self {
+            inner,
+            encryption_utils,
+            code_hash_cache,
+        }
     }
 }
 
