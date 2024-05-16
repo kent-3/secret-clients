@@ -40,12 +40,12 @@ const CHAIN_ID: &str = "secret-4";
 async fn main() -> Result<()> {
     ::color_eyre::install()?;
     ::tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_env_filter(EnvFilter::new("debug,h2=info"))
+        .with_max_level(tracing::Level::INFO)
+        // .with_env_filter(EnvFilter::new("debug,h2=info"))
         .with_line_number(false)
         .with_file(false)
         .without_time()
-        // .pretty()
+        .pretty()
         .init();
 
     let options = CreateClientOptions {
