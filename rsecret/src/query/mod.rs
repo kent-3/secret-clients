@@ -12,6 +12,26 @@ pub mod staking;
 pub mod tendermint;
 pub mod tx;
 
+// TODO:
+pub mod authz;
+pub mod distribution;
+pub mod emergency_button;
+pub mod evidence;
+pub mod feegrant;
+pub mod gov;
+pub mod ibc_channel;
+pub mod ibc_client;
+pub mod ibc_connection;
+pub mod ibc_fee;
+pub mod ibc_interchain_accounts_controller;
+pub mod ibc_interchain_accounts_host;
+pub mod ibc_packet_forward;
+pub mod ibc_transfer;
+pub mod node;
+pub mod params;
+pub mod slashing;
+pub mod upgrade;
+
 use auth::AuthQuerier;
 use bank::BankQuerier;
 use compute::ComputeQuerier;

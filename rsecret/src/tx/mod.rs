@@ -1,24 +1,24 @@
 #![allow(unused)]
 
 // TODO:
-mod authz;
-mod bank;
-mod compute;
-mod crisis;
-mod distribution;
-mod emergency_button;
-mod evidence;
-mod feegrant;
-mod gov;
-mod ibc_channel;
-mod ibc_client;
-mod ibc_connection;
-mod ibc_fee;
-mod ibc_transfer;
-mod registration;
-mod slashing;
-mod staking;
-mod vesting;
+pub mod authz;
+pub mod bank;
+pub mod compute;
+pub mod crisis;
+pub mod distribution;
+pub mod emergency_button;
+pub mod evidence;
+pub mod feegrant;
+pub mod gov;
+pub mod ibc_channel;
+pub mod ibc_client;
+pub mod ibc_connection;
+pub mod ibc_fee;
+pub mod ibc_transfer;
+pub mod registration;
+pub mod slashing;
+pub mod staking;
+pub mod vesting;
 
 pub use authz::AuthzServiceClient;
 pub use bank::BankServiceClient;
