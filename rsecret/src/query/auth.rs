@@ -1,4 +1,4 @@
-use super::{Error, Result};
+use crate::{Error, Result};
 use prost::Message;
 pub use secretrs::{
     grpc_clients::AuthQueryClient,
@@ -122,7 +122,9 @@ where
                     let account = <DelayedVestingAccount as Message>::decode(any.value.as_ref())?;
                     Ok(Some(Account::DelayedVestingAccount(account.try_into()?)))
                 }
-                _ => Err(format!("unexpected type_url: {}", any.type_url).into()),
+                _ => Err(Error::InvalidAny {
+                    type_url: any.type_url,
+                }),
             }
         } else {
             Ok(None)

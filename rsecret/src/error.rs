@@ -1,54 +1,53 @@
-// TODO: probably should use thiserror
-
-use derive_more::From;
-
-/// Alias for a `Result` with the error type `module::Error`.
+/// Alias for a `Result` with the error type `crate::Error`.
 pub type Result<T> = core::result::Result<T, Error>;
 
-/// This type represents all possible errors that can occur in this module.
-#[derive(Debug, From)]
+/// This type represents all possible errors that can occur in this crate.
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[from]
+    #[error("{0}")]
     Custom(String),
+    #[error("Simple Error")]
     SimpleError,
-    ErrorWithData {
-        data: String,
-    },
+    #[error("{self:?}")]
+    ErrorWithData { data: String },
 
-    MissingField {
-        name: &'static str,
-    },
+    #[error("{self:?}")]
+    MissingField { name: &'static str },
+    #[error("{self:?}")]
+    InvalidAny { type_url: String },
+    #[error("Address {signer_address} not found in wallet")]
+    InvalidSigner { signer_address: String },
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[from]
-    Tonic(tonic::transport::Error),
+    #[error(transparent)]
+    Tonic(#[from] tonic::transport::Error),
 
-    #[from]
-    Status(tonic::Status),
-    #[from]
-    ProstDecode(prost::DecodeError),
-    #[from]
-    ProstEncode(prost::EncodeError),
+    #[error(transparent)]
+    Status(#[from] tonic::Status),
+    #[error(transparent)]
+    ProstDecode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    ProstEncode(#[from] prost::EncodeError),
 
-    #[from]
-    FromUtf8(std::string::FromUtf8Error),
-    #[from]
-    Base64Decode(base64::DecodeError),
-    #[from]
-    FromHex(hex::FromHexError),
-    #[from]
-    SerdeJson(serde_json::Error),
+    #[error(transparent)]
+    FromUtf8(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    Base64Decode(#[from] base64::DecodeError),
+    #[error(transparent)]
+    FromHex(#[from] hex::FromHexError),
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
 
-    #[from]
-    SecretRs(secretrs::Error),
-    #[from]
-    ErrorReport(secretrs::ErrorReport),
-    #[from]
-    EncryptionUtils(secretrs::utils::Error),
-    #[from]
-    Tendermint(secretrs::tendermint::Error),
-    #[from]
-    Bip39(bip39::Error),
+    #[error(transparent)]
+    SecretRs(#[from] secretrs::Error),
+    #[error(transparent)]
+    ErrorReport(#[from] secretrs::ErrorReport),
+    #[error(transparent)]
+    EncryptionUtils(#[from] secretrs::utils::Error),
+    #[error(transparent)]
+    Tendermint(#[from] secretrs::tendermint::Error),
+    #[error(transparent)]
+    Bip39(#[from] bip39::Error),
 }
 
 impl Error {
@@ -63,10 +62,16 @@ impl From<&str> for Error {
     }
 }
 
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+impl From<String> for Error {
+    fn from(value: String) -> Self {
+        Self::Custom(value)
     }
 }
 
-impl std::error::Error for Error {}
+// impl core::fmt::Display for Error {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "{self:?}")
+//     }
+// }
+//
+// impl std::error::Error for Error {}

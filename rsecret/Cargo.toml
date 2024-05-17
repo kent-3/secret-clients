@@ -31,7 +31,6 @@ aes-siv = "0.7.0"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 # errors
-anyhow = "1.0.83"
 thiserror = "1.0.51"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -39,7 +38,7 @@ tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"
 # tonic-web = { version = "0.11.0 "}
 # hyper = { version = "0", features = ["full"] }
 # hyper-util = { version = "0.1", features = ["full"] }
-# http = {version = "0"}
+# http = {version = "0.2.12"}
 # hyper-rustls = { version = "0.27.1" }
 # rustls = {version = "0.23.5"}
 # http-body-util = "0.1"

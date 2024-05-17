@@ -1,7 +1,7 @@
 #![allow(unused)]
 
-use super::{Error, Result};
 use crate::CreateClientOptions;
+use crate::{Error, Result};
 use tonic::codegen::{Body, Bytes, StdError};
 
 pub mod auth;

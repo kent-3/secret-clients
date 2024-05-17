@@ -1,4 +1,4 @@
-use crate::{secret_network_client::SignDocCamelCase, Result};
+use crate::{secret_network_client::SignDocCamelCase, Error::InvalidSigner, Result};
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -149,7 +149,9 @@ impl AminoSigner for AminoWallet {
         sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
         if signer_address != self.address {
-            return Err(format!("Address {signer_address} not found in wallet").into());
+            return Err(InvalidSigner {
+                signer_address: signer_address.to_string(),
+            });
         }
 
         let message_hash = Sha256::digest(serialize_std_sign_doc(&sign_doc));

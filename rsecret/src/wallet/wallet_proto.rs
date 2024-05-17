@@ -1,9 +1,7 @@
-#![allow(unused)]
-
 use super::wallet_amino::{
     encode_secp256k1_signature, AccountData, Algo, AminoWallet, StdSignature,
 };
-use crate::Result;
+use crate::{Error::InvalidSigner, Result};
 use secretrs::tx::SignDoc;
 use sha2::{Digest, Sha256};
 
@@ -36,7 +34,9 @@ impl Wallet {
         sign_doc: SignDoc,
     ) -> Result<DirectSignResponse> {
         if signer_address != self.0.address {
-            return Err(format!("Address {signer_address} not found in wallet").into());
+            return Err(InvalidSigner {
+                signer_address: signer_address.to_string(),
+            });
         }
 
         let message_hash = Sha256::digest(serialize_sign_doc(sign_doc.clone())?);
