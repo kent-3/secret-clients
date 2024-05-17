@@ -1,7 +1,6 @@
 use color_eyre::Result;
 use tracing::info;
 
-use rsecret::query::tendermint::GetNodeInfoResponse;
 use rsecret::{CreateClientOptions, SecretNetworkClient};
 
 const GRPC_URL: &str = "https://secretnetwork-grpc.lavenderfive.com";
@@ -30,13 +29,6 @@ async fn main() -> Result<()> {
     let latest_block = secretrs.query.tendermint.get_latest_block().await?;
     let latest_block_height = latest_block.header.height;
     info!("{:#?}", latest_block_height);
-
-    let GetNodeInfoResponse {
-        default_node_info,
-        application_version,
-    } = secretrs.query.tendermint.get_node_info().await?;
-    info!("{:#?}", default_node_info);
-    info!("{:#?}", application_version);
 
     Ok(())
 }

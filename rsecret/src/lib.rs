@@ -23,6 +23,9 @@ pub mod tx;
 pub use error::{Error, Result};
 pub use secret_network_client::{CreateClientOptions, SecretNetworkClient, TxOptions};
 
+// TODO: create a "mini" SecretNetworkClient for the most common types of queries and txs
+// TODO: create a "read-only" SecretNetworkClient for queries
+
 #[cfg(target_arch = "wasm32")]
 #[cfg(test)]
 mod test {
