@@ -5,33 +5,31 @@ use crate::{Error, Result};
 use tonic::codegen::{Body, Bytes, StdError};
 
 pub mod auth;
+pub mod authz;
 pub mod bank;
 pub mod compute;
-pub mod mauth;
-pub mod registration;
-pub mod staking;
-pub mod tendermint;
-pub mod tx;
-
-// TODO:
-pub mod authz;
 pub mod distribution;
 pub mod emergency_button;
-pub mod evidence;
+pub mod evidence; // TODO: decode `Any` types
 pub mod feegrant;
 pub mod gov;
-pub mod ibc_channel;
-pub mod ibc_client;
-pub mod ibc_connection;
-pub mod ibc_fee;
+pub mod ibc_channel; // TODO:
+pub mod ibc_client; // TODO:
+pub mod ibc_connection; // TODO:
+pub mod ibc_fee; // TODO: module not in cosmos_sdk_proto
 pub mod ibc_interchain_accounts_controller;
 pub mod ibc_interchain_accounts_host;
-pub mod ibc_packet_forward;
+pub mod ibc_packet_forward; // TODO: module not in cosmos_sdk_proto
 pub mod ibc_transfer;
+pub mod mauth;
 pub mod mint;
 pub mod node;
 pub mod params;
+pub mod registration;
 pub mod slashing;
+pub mod staking;
+pub mod tendermint;
+pub mod tx;
 pub mod upgrade;
 
 use auth::AuthQuerier;
@@ -42,6 +40,14 @@ use distribution::DistributionQuerier;
 use emergency_button::EmergencyButtonQuerier;
 use feegrant::FeeGrantQuerier;
 use gov::GovQuerier;
+use ibc_channel::IbcChannelQuerier;
+use ibc_client::IbcClientQuerier;
+use ibc_connection::IbcConnectionQuerier;
+// use ibc_fee::IbcFeeQuerier;
+use ibc_interchain_accounts_controller::IbcInterchainAccountsControllerQuerier;
+use ibc_interchain_accounts_host::IbcInterchainAccountsHostQuerier;
+// use ibc_packet_forward::IbcPacketForwardQuerier;
+use ibc_transfer::IbcTransferQuerier;
 use mauth::InterTxQuerier;
 use mint::MintQuerier;
 use params::ParamsQuerier;

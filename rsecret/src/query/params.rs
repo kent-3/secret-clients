@@ -39,4 +39,28 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
+    pub async fn params(
+        &self,
+        subspace: impl Into<String>,
+        key: impl Into<String>,
+    ) -> Result<ParamChange> {
+        let subspace = subspace.into();
+        let key = key.into();
+
+        let request = QueryParamsRequest { subspace, key };
+        let response = self.inner.clone().params(request).await?;
+
+        let param = response
+            .into_inner()
+            .param
+            .ok_or(Error::MissingField { name: "param" })?;
+
+        Ok(param)
+    }
+
+    /// Since: cosmos-sdk 0.46
+    pub async fn subspaces(&self) -> Result<QuerySubspacesResponse> {
+        let req = QuerySubspacesRequest {};
+        unimplemented!()
+    }
 }

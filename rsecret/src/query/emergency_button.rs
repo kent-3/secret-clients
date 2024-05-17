@@ -39,4 +39,16 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
+    pub async fn params(&self) -> Result<Params> {
+        let request = ParamsRequest {};
+        let response: ::tonic::Response<ParamsResponse> =
+            self.inner.clone().params(request).await?;
+
+        let params = response
+            .into_inner()
+            .params
+            .ok_or(Error::MissingField { name: "params" })?;
+
+        Ok(params)
+    }
 }

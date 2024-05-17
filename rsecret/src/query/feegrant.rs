@@ -39,4 +39,123 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
+    pub async fn allowance(
+        &self,
+        granter: impl Into<String>,
+        grantee: impl Into<String>,
+    ) -> Result<Grant> {
+        let granter = granter.into();
+        let grantee = grantee.into();
+
+        let request = QueryAllowanceRequest { grantee, granter };
+        let response: ::tonic::Response<QueryAllowanceResponse> =
+            self.inner.clone().allowance(request).await?;
+
+        let allowance = response
+            .into_inner()
+            .allowance
+            .ok_or(Error::MissingField { name: "allowance" })?;
+
+        Ok(allowance)
+    }
+
+    pub async fn allowances(
+        &self,
+        grantee: impl Into<String>,
+        pagination: Option<PageRequest>,
+    ) -> Result<Vec<Grant>> {
+        let grantee = grantee.into();
+
+        let mut all_allowances = Vec::new();
+        let mut current_page = pagination;
+        let mut total_pages: Option<u64> = None;
+
+        loop {
+            let request = QueryAllowancesRequest {
+                grantee: grantee.clone(),
+                pagination: current_page.clone(),
+            };
+            let response: ::tonic::Response<QueryAllowancesResponse> =
+                self.inner.clone().allowances(request).await?;
+            let response = response.into_inner();
+            let allowances = response.allowances;
+            all_allowances.extend(allowances);
+
+            if let Some(page_response) = response.pagination {
+                debug!("{:?}", current_page.as_ref().unwrap());
+                debug!("{:?}", page_response);
+                if total_pages.is_none() && page_response.total > 0 {
+                    let total_count = page_response.total;
+                    let limit = current_page.as_ref().unwrap().limit;
+                    total_pages = Some((total_count + limit - 1) / limit);
+                    debug!("Total pages needed: {}", total_pages.unwrap());
+                    if total_pages.unwrap() > 10 {
+                        warn!("That's a lot of pages!");
+                    }
+                }
+                if page_response.next_key.is_empty() {
+                    break;
+                } else {
+                    current_page = Some(PageRequest {
+                        key: page_response.next_key,
+                        ..current_page.unwrap_or_default()
+                    });
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_allowances)
+    }
+
+    pub async fn allowances_by_granter(
+        &self,
+        granter: impl Into<String>,
+        pagination: Option<PageRequest>,
+    ) -> Result<Vec<Grant>> {
+        let granter = granter.into();
+
+        let mut all_allowances = Vec::new();
+        let mut current_page = pagination;
+        let mut total_pages: Option<u64> = None;
+
+        loop {
+            let request = QueryAllowancesByGranterRequest {
+                granter: granter.clone(),
+                pagination: current_page.clone(),
+            };
+            let response: ::tonic::Response<QueryAllowancesByGranterResponse> =
+                self.inner.clone().allowances_by_granter(request).await?;
+            let response = response.into_inner();
+            let allowances = response.allowances;
+            all_allowances.extend(allowances);
+
+            if let Some(page_response) = response.pagination {
+                debug!("{:?}", current_page.as_ref().unwrap());
+                debug!("{:?}", page_response);
+                if total_pages.is_none() && page_response.total > 0 {
+                    let total_count = page_response.total;
+                    let limit = current_page.as_ref().unwrap().limit;
+                    total_pages = Some((total_count + limit - 1) / limit);
+                    debug!("Total pages needed: {}", total_pages.unwrap());
+                    if total_pages.unwrap() > 10 {
+                        warn!("That's a lot of pages!");
+                    }
+                }
+                if page_response.next_key.is_empty() {
+                    break;
+                } else {
+                    current_page = Some(PageRequest {
+                        key: page_response.next_key,
+                        ..current_page.unwrap_or_default()
+                    });
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_allowances)
+    }
 }
