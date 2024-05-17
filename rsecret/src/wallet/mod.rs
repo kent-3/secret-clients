@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub(crate) mod wallet_amino;
 pub(crate) mod wallet_proto;
 

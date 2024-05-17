@@ -4,71 +4,49 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# blockchain
-# secretrs = { version = "0.1.0-beta.2", features = ["grpc"] }
-secretrs = { version = "0.1.0-beta.3" }
-# cosmwasm-std = { version = "=1.1.11", package = "secret-cosmwasm-std" }
-# bip32 = "0.5.1"
-bip39 = "2.0.0"
-
 # general
-async-trait = "0.1.80"
-serde = "1.0.198"
-serde_json = { version = "1.0.116" }
-nanorand = { version = "0.7.0", features = ["getrandom", "zeroize"] }
-derive_more = { version = "1.0.0-beta", default-features = false, features = ["from"] }
-regex = "1.10.4"
-prost = "0.12.4"
 tracing = "0.1.40" 
-
-# crypto
+async-trait = "0.1.80"
 base64 = "0.22.0"
 hex = "0.4.3"
 hex-literal = "0.4.1"
+regex = "1.10.4"
+serde = "1.0.198"
+serde_json = { version = "1.0.116" }
+prost = "0.12.4"
+derive_more = { version = "1.0.0-beta", default-features = false, features = ["from"] }
+nanorand = { version = "0.7.0", features = ["getrandom", "zeroize"] }
+
+# crypto
 hkdf = "0.12.4"
 sha2 = "0.10.8"
 aes-siv = "0.7.0"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
+
+# blockchain
+secretrs = { version = "0.1.0-beta.3" }
+bip39 = "2.0.0"
 
 # errors
 thiserror = "1.0.51"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"] }
-# tonic-web = { version = "0.11.0 "}
-# hyper = { version = "0", features = ["full"] }
-# hyper-util = { version = "0.1", features = ["full"] }
-# http = {version = "0.2.12"}
-# hyper-rustls = { version = "0.27.1" }
-# rustls = {version = "0.23.5"}
-# http-body-util = "0.1"
-# http-body = "1.0.0"
-# tower-service = "0.3.2"
-# tower-layer = "0.3.2"
-# tower-http = { version = "0.5.2", features = ["cors"] }
-# tower = {version = "0.4.13", features = ["full"]}
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-color-eyre = "0.6"
-regex = "1"
-tokio = { version = "1.37", features = ["rt", "sync", "time", "macros"] }
-tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"] }
-
-# wasm
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tonic-web-wasm-client = "0.5.1"
 tonic = { version = "0.11.0", default-features = false, features = ["codegen","prost"] }
+tonic-web-wasm-client = "0.5.1"
 getrandom = { version = "0.2.14", features = ["js"] }
-nanorand = { version = "0.7.0", features = ["getrandom", "zeroize"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+[dev-dependencies]
+tokio = { version = "1.37", features = ["rt", "sync", "time", "macros"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 color-eyre = "0.6"
-tokio = { version = "1.37", features = ["rt", "sync", "time", "macros"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.42"
 web-sys = { version = "0.3", features = ["console"]}
+
 
 [[example]]
 name = "client"
