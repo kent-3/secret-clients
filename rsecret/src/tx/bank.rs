@@ -7,7 +7,8 @@ use secretrs::{
         base::abci::v1beta1::TxResponse,
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},
     },
-    tx::{BodyBuilder, Msg, Raw, SignDoc, Tx},
+    tendermint::chain,
+    tx::{self, *},
 };
 use tonic::codegen::{Body, Bytes, StdError};
 
@@ -48,7 +49,8 @@ where
     T: Clone,
 {
     pub async fn send(&self, msg: MsgSend, tx_options: TxOptions) -> Result<TxResponse> {
-        let tx_request = self.prepare_tx(msg, tx_options);
+        let tx_body = self.prepare_tx(msg, tx_options)?;
+        let tx_request = todo!();
         let tx_response = self
             .perform(tx_request)
             .await?
@@ -63,15 +65,28 @@ where
         todo!()
     }
 
-    fn prepare_tx<M: secretrs::tx::Msg>(
-        &self,
-        msg: M,
-        tx_options: TxOptions,
-    ) -> BroadcastTxRequest {
-        todo!()
+    fn prepare_tx<M: secretrs::tx::Msg>(&self, msg: M, tx_options: TxOptions) -> Result<tx::Body> {
+        // TODO: find a way to get chain_id
+        let chain_id: chain::Id = "secretdev-1".parse()?;
+
+        // TODO: figure out how to use an AuthQuerier here to get account_number and sequence_number
+        let account_number = 0;
+        let account_sequence = 1;
+
+        let gas = tx_options.gas_limit;
+        // TODO: figure out what to set this timeout_height to
+        let timeout_height = 99999999u32;
+        let memo = tx_options.memo;
+
+        let tx_body = secretrs::tx::Body::new(vec![msg.to_any()?], memo, timeout_height);
+
+        Ok(tx_body)
     }
 
     async fn sign(&self, sign_doc: SignDoc) -> Result<Raw> {
+        // let signer_info = SignerInfo::single_direct(Some(sender_public_key), account_sequence);
+        // let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(amount, gas));
+        // let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, account_number)?;
         todo!()
     }
 

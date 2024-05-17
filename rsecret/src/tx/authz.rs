@@ -48,7 +48,15 @@ where
     T: Clone,
 {
     pub async fn exec(&self, msg: MsgExec, tx_options: TxOptions) -> Result<TxResponse> {
-        todo!()
+        let tx_request = self.prepare_tx(msg, tx_options);
+        let tx_response = self
+            .perform(tx_request)
+            .await?
+            .into_inner()
+            .tx_response
+            .ok_or("no response")?;
+
+        Ok(tx_response)
     }
 
     pub async fn grant(&self, msg: MsgGrant, tx_options: TxOptions) -> Result<TxResponse> {
