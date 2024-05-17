@@ -7,6 +7,7 @@ use tonic::codegen::{Body, Bytes, StdError};
 pub mod auth;
 pub mod bank;
 pub mod compute;
+pub mod mauth;
 pub mod registration;
 pub mod staking;
 pub mod tendermint;
@@ -27,18 +28,29 @@ pub mod ibc_interchain_accounts_controller;
 pub mod ibc_interchain_accounts_host;
 pub mod ibc_packet_forward;
 pub mod ibc_transfer;
+pub mod mint;
 pub mod node;
 pub mod params;
 pub mod slashing;
 pub mod upgrade;
 
 use auth::AuthQuerier;
+use authz::AuthzQuerier;
 use bank::BankQuerier;
 use compute::ComputeQuerier;
+use distribution::DistributionQuerier;
+use emergency_button::EmergencyButtonQuerier;
+use feegrant::FeeGrantQuerier;
+use gov::GovQuerier;
+use mauth::InterTxQuerier;
+use mint::MintQuerier;
+use params::ParamsQuerier;
 use registration::RegistrationQuerier;
+use slashing::SlashingQuerier;
 use staking::StakingQuerier;
 use tendermint::TendermintQuerier;
 use tx::TxQuerier;
+use upgrade::UpgradeQuerier;
 
 #[derive(Debug, Clone)]
 pub struct Querier<T>
@@ -50,6 +62,7 @@ where
     T: Clone,
 {
     pub auth: AuthQuerier<T>,
+    pub authz: AuthzQuerier<T>,
     pub bank: BankQuerier<T>,
     pub compute: ComputeQuerier<T>,
     pub registration: RegistrationQuerier<T>,
@@ -69,6 +82,7 @@ impl Querier<::tonic::transport::Channel> {
 
     pub fn new(channel: ::tonic::transport::Channel, options: &CreateClientOptions) -> Self {
         let auth = AuthQuerier::new(channel.clone());
+        let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
         let compute = ComputeQuerier::new(channel.clone(), &options);
         let registration = RegistrationQuerier::new(channel.clone());
@@ -79,6 +93,7 @@ impl Querier<::tonic::transport::Channel> {
 
         Self {
             auth,
+            authz,
             bank,
             compute,
             registration,
