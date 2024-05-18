@@ -28,8 +28,8 @@ use secretrs::{
                 query::v1beta1::PageRequest,
             },
             tx::v1beta1::{
-                BroadcastMode, GetTxResponse, GetTxsEventRequest, OrderBy, SimulateResponse,
-                Tx as TxProto, TxRaw,
+                BroadcastMode, GetTxResponse, GetTxsEventRequest, OrderBy, SimulateRequest,
+                SimulateResponse, Tx as TxProto, TxRaw,
             },
         },
         secret::compute::v1beta1::{
@@ -43,7 +43,7 @@ use secretrs::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
         SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
-    Any, EncryptionUtils,
+    Any, Coin, EncryptionUtils,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tonic::codegen::{Body, Bytes, StdError};
@@ -634,21 +634,21 @@ where
     ///
     /// If the transaction is included in a block, a [`TxResponse`] is returned. The caller then
     /// usually needs to check for execution success or failure.
-    async fn broadcast_tx<M: Msg>(
+    async fn broadcast_tx(
         &self,
         tx_bytes: Vec<u8>,
         timeout_ms: u32,
         check_interval_ms: u32,
         mode: BroadcastMode,
         wait_for_commit: bool,
-        ibc_tx_options: IbcTxOptions,
+        ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
         todo!()
     }
 
     /// Prepare and sign an array of messages as a transaction.
-    async fn sign_tx<M: Msg>(&self, messages: Vec<M>, tx_options: TxOptions) -> Result<Vec<u8>> {
-        todo!()
+    async fn sign_tx<M: Msg>(&self, messages: Vec<M>, tx_options: TxOptions) -> Result<Raw> {
+        self.prepare_and_sign(messages, tx_options, false).await
     }
 
     /// Broadcast a signed transaction.
@@ -657,7 +657,15 @@ where
         tx_bytes: Vec<u8>,
         tx_options: TxOptions,
     ) -> Result<TxResponse> {
-        todo!()
+        self.broadcast_tx(
+            tx_bytes,
+            tx_options.broadcast_timeout_ms,
+            tx_options.broadcast_check_interval_ms,
+            tx_options.broadcast_mode,
+            tx_options.wait_for_commit,
+            None,
+        )
+        .await
     }
 
     async fn prepare_and_sign<M: Msg>(
@@ -665,8 +673,33 @@ where
         messages: Vec<M>,
         tx_options: TxOptions,
         simulate: bool,
-    ) -> Result<Vec<u8>> {
-        todo!()
+    ) -> Result<Raw> {
+        let gas_limit = tx_options.gas_limit;
+        let gas_price_in_fee_denom = tx_options.gas_price_in_fee_denom;
+        let fee_denom = tx_options.fee_denom;
+        let memo = tx_options.memo;
+        let fee_granter = tx_options.fee_granter;
+
+        let explicit_signer_data = tx_options.explicit_signer_data;
+
+        let tx_raw = self
+            .sign(
+                messages,
+                StdFee {
+                    gas: format!("{gas_limit}"),
+                    amount: vec![Coin::new(
+                        gas_to_fee(gas_limit, gas_price_in_fee_denom),
+                        &fee_denom,
+                    )?],
+                    granter: fee_granter,
+                },
+                memo,
+                explicit_signer_data,
+                simulate,
+            )
+            .await?;
+
+        Ok(Raw::from(tx_raw))
     }
 
     async fn sign_and_broadcast<M: Msg>(
@@ -674,7 +707,20 @@ where
         messages: Vec<M>,
         tx_options: TxOptions,
     ) -> Result<TxResponse> {
-        todo!()
+        let tx_bytes = self
+            .prepare_and_sign(messages, tx_options.clone(), false)
+            .await?
+            .to_bytes()?;
+
+        self.broadcast_tx(
+            tx_bytes,
+            tx_options.broadcast_timeout_ms,
+            tx_options.broadcast_check_interval_ms,
+            tx_options.broadcast_mode,
+            tx_options.wait_for_commit,
+            tx_options.ibc_txs_options,
+        )
+        .await
     }
 
     async fn simulate<M: Msg>(
@@ -682,7 +728,15 @@ where
         messages: Vec<M>,
         tx_options: TxOptions,
     ) -> Result<SimulateResponse> {
-        todo!()
+        let tx_bytes = self
+            .prepare_and_sign(messages, tx_options.clone(), true)
+            .await?
+            .to_bytes()?;
+
+        let request = SimulateRequest { tx: None, tx_bytes };
+        let response = self.tx.clone().simulate(request).await?;
+
+        Ok(response)
     }
 
     /// Signs a transaction.
@@ -692,12 +746,12 @@ where
     ///
     /// You can pass signer data (account number, sequence and chain ID) explicitly instead of querying them
     /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
-    async fn sign(
-        // TODO: define a Msg type
-        // messages: Vec<Msg>,
+    async fn sign<M>(
+        &self,
+        messages: Vec<M>,
         fee: StdFee,
         memo: String,
-        explicit_signer_data: SignerData,
+        explicit_signer_data: Option<SignerData>,
         simulate: bool,
     ) -> Result<TxRaw> {
         todo!()
@@ -718,6 +772,10 @@ where
     async fn sign_direct(&self) {
         todo!()
     }
+}
+
+pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
+    (gas_limit as f32 * gas_price).ceil() as u128
 }
 
 // TODO: we need some generic 'Msg' type to be used in all these methods.

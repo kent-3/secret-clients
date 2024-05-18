@@ -28,6 +28,7 @@ pub use distribution::DistributionServiceClient;
 pub use evidence::EvidenceServiceClient;
 pub use feegrant::FeegrantServiceClient;
 pub use gov::GovServiceClient;
+use secretrs::proto::cosmos::tx::v1beta1::{SimulateRequest, SimulateResponse};
 pub use slashing::SlashingServiceClient;
 pub use staking::StakingServiceClient;
 
@@ -141,7 +142,15 @@ where
         self.tx
             .broadcast_tx(request)
             .await
-            .map_err(Into::into)
+            .map_err(Error::from)
+            .map(::tonic::Response::into_inner)
+    }
+
+    pub async fn simulate(&mut self, request: SimulateRequest) -> Result<SimulateResponse> {
+        self.tx
+            .simulate(request)
+            .await
+            .map_err(Error::from)
             .map(::tonic::Response::into_inner)
     }
 }
