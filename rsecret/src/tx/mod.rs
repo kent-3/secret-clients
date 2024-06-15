@@ -33,12 +33,13 @@ pub use slashing::SlashingServiceClient;
 pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
+use crate::secret_network_client::CreateTxSenderOptions;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
 use tonic::codegen::{Body, Bytes, StdError};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TxSender<T>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
@@ -62,14 +63,14 @@ where
 
 #[cfg(not(target_arch = "wasm32"))]
 impl TxSender<::tonic::transport::Channel> {
-    pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
+    pub async fn connect(options: CreateTxSenderOptions) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: &CreateClientOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions) -> Self {
         let authz = AuthzServiceClient::new(channel.clone());
         let bank = BankServiceClient::new(channel.clone());
         let compute = ComputeServiceClient::new(channel.clone(), options);
@@ -100,7 +101,7 @@ impl TxSender<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl TxSender<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
         let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());
         let compute = ComputeServiceClient::new(client.clone(), options);
@@ -138,16 +139,18 @@ where
     T: Clone,
 {
     // TODO - figure out how to support multiple messages
-    pub async fn broadcast(&mut self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {
+    pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {
         self.tx
+            .clone()
             .broadcast_tx(request)
             .await
             .map_err(Error::from)
             .map(::tonic::Response::into_inner)
     }
 
-    pub async fn simulate(&mut self, request: SimulateRequest) -> Result<SimulateResponse> {
+    pub async fn simulate(&self, request: SimulateRequest) -> Result<SimulateResponse> {
         self.tx
+            .clone()
             .simulate(request)
             .await
             .map_err(Error::from)

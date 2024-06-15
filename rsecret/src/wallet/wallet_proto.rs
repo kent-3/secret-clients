@@ -5,13 +5,11 @@ use crate::{Error::InvalidSigner, Result};
 use secretrs::tx::SignDoc;
 use sha2::{Digest, Sha256};
 
-/**
-Wallet is a wallet capable of signing on transactions.
-
- `Wallet` can just extend `AminoWallet` and be a valid `DirectSigner` because
- `SecretNetworkClient` checks first for the existence of `signDirect` function
- before checking for `signAmino` function.
-*/
+/// Wallet is a wallet capable of signing on transactions.
+///
+/// `Wallet` can just extend `AminoWallet` and be a valid `DirectSigner` because
+/// `SecretNetworkClient` checks first for the existence of `signDirect` function
+/// before checking for `signAmino` function.
 #[derive(Debug)]
 pub struct Wallet(AminoWallet);
 
@@ -20,7 +18,7 @@ impl Wallet {
         Wallet(amino_wallet)
     }
 
-    async fn get_accounts(&self) -> Vec<AccountData> {
+    pub async fn get_accounts(&self) -> Vec<AccountData> {
         vec![AccountData {
             address: self.0.address.clone(),
             algo: Algo::Secp256k1,
@@ -28,7 +26,7 @@ impl Wallet {
         }]
     }
 
-    async fn sign_direct(
+    pub async fn sign_direct(
         &self,
         signer_address: &str,
         sign_doc: SignDoc,

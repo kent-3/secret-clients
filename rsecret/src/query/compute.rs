@@ -1,5 +1,5 @@
 use super::{Error, Result};
-use crate::CreateClientOptions;
+use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions};
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use regex::Regex;
 pub use secretrs::{
@@ -24,21 +24,21 @@ use tonic::{
 pub struct ComputeQuerier<T> {
     inner: ComputeQueryClient<T>,
     encryption_utils: EncryptionUtils,
-    code_hash_cache: HashMap<&'static str, String>,
+    code_hash_cache: HashMap<String, String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ComputeQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
+    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
-    pub fn new(channel: ::tonic::transport::Channel, options: &CreateClientOptions) -> Self {
+
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
         let inner = ComputeQueryClient::new(channel);
-        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)
-            .expect("failed to create EncryptionUtils");
+        let encryption_utils = options.encryption_utils;
         let code_hash_cache = HashMap::new();
         Self {
             inner,

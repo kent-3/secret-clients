@@ -8,7 +8,10 @@ use crate::{
     query::Querier,
     tx::TxSender,
     wallet::{
-        wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdFee, StdSignDoc},
+        wallet_amino::{
+            AccountData, AminoSignResponse, AminoSigner, AminoWallet, StdFee, StdSignDoc,
+            WalletOptions,
+        },
         wallet_proto::Wallet,
     },
     Error, Result,
@@ -87,6 +90,25 @@ impl CreateClientOptions {
             ..Default::default()
         }
     }
+}
+
+// NOTE: these technically don't require the chain_id, because the EncryptionUtils are provided,
+// but I'll leave it here just in case.
+
+#[derive(Debug)]
+pub struct CreateQuerierOptions {
+    pub url: &'static str,
+    pub chain_id: &'static str,
+    pub encryption_utils: EncryptionUtils,
+}
+
+#[derive(Debug)]
+pub struct CreateTxSenderOptions {
+    pub url: &'static str,
+    pub chain_id: &'static str,
+    pub wallet: Arc<Wallet>,
+    pub wallet_address: Arc<str>,
+    pub encryption_utils: EncryptionUtils,
 }
 
 /// Options related to IBC transactions
@@ -268,12 +290,12 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
 {
-    pub url: &'static str,
+    pub url: String,
     pub query: Querier<T>,
     pub tx: TxSender<T>,
-    pub wallet: Option<Wallet>,
+    pub wallet: Arc<Wallet>,
     pub address: String,
-    pub chain_id: &'static str,
+    pub chain_id: String,
     pub encryption_utils: EncryptionUtils,
     // TODO - is this worth doing?
     // tx_options: Arc<TxOptions>,
@@ -292,27 +314,43 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
     }
 
     pub fn new(channel: ::tonic::transport::Channel, options: CreateClientOptions) -> Result<Self> {
-        let url = options.url;
+        // if no Wallet is provided, a random one is created
+        let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
+            Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
+        }));
 
-        let query = Querier::new(channel.clone(), &options);
-        let tx = TxSender::new(channel.clone(), &options);
-        // let tx_options = Arc::new(TxOptions::default());
+        // if no EncryptionUtils is provided, one is created
+        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+            // if no seed is provided, one is randomly generated
+            // TODO: query the chain for the enclave IO pubkey
+            EncryptionUtils::new(options.encryption_seed.clone(), options.chain_id).unwrap()
+        });
 
-        let wallet = options.wallet;
-        let address = options.wallet_address.unwrap_or_default();
-        let chain_id = options.chain_id;
+        let query_client_options = CreateQuerierOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            encryption_utils: encryption_utils.clone(),
+        };
+        let query = Querier::new(channel.clone(), query_client_options);
 
-        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)?;
+        let tx_client_options = CreateTxSenderOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            wallet: wallet.clone(),
+            wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
+            encryption_utils: encryption_utils.clone(),
+        };
+        let tx = TxSender::new(channel.clone(), tx_client_options);
 
-        Ok(Self {
-            url,
+        return Ok(Self {
+            url: options.url.into(),
             query,
             tx,
             wallet,
-            address,
-            chain_id,
+            address: options.wallet_address.unwrap_or_default().into(),
+            chain_id: options.chain_id.into(),
             encryption_utils,
-        })
+        });
     }
 
     // I think it'd be a nice feature to be able to change the default tx options
@@ -328,27 +366,39 @@ impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
         client: ::tonic_web_wasm_client::Client,
         options: CreateClientOptions,
     ) -> Result<Self> {
-        let url = options.url;
+        let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
+            Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
+        }));
 
-        let query = Querier::new(client.clone(), &options);
-        let tx = TxSender::new(client.clone(), &options);
-        // let tx_options = Arc::new(TxOptions::default());
+        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+            EncryptionUtils::new(options.encryption_seed.clone(), options.chain_id).unwrap()
+        });
 
-        let wallet = options.wallet;
-        let address = options.wallet_address.unwrap_or_default();
-        let chain_id = options.chain_id;
+        let query_client_options = CreateQuerierOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            encryption_utils: encryption_utils.clone(),
+        };
+        let query = Querier::new(channel.clone(), query_client_options);
 
-        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)?;
+        let tx_client_options = CreateTxSenderOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            wallet: wallet.clone(),
+            wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
+            encryption_utils: encryption_utils.clone(),
+        };
+        let tx = TxSender::new(channel.clone(), tx_client_options);
 
-        Ok(Self {
-            url,
+        return Ok(Self {
+            url: options.url.into(),
             query,
             tx,
             wallet,
-            address,
-            chain_id,
+            address: options.wallet_address.unwrap_or_default().into(),
+            chain_id: options.chain_id.into(),
             encryption_utils,
-        })
+        });
     }
 }
 
@@ -734,7 +784,7 @@ where
             .to_bytes()?;
 
         let request = SimulateRequest { tx: None, tx_bytes };
-        let response = self.tx.clone().simulate(request).await?;
+        let response = self.tx.simulate(request).await?;
 
         Ok(response)
     }

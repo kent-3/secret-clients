@@ -1,12 +1,11 @@
-use cosmrs::{
+// use cosmwasm_std::Addr;
+use secretrs::{
+    bip32,
     crypto::{secp256k1::SigningKey, PublicKey},
     AccountId,
 };
-use cosmwasm_std::Addr;
 
-pub type Wallet = Account;
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Account {
     prvk: bip32::XPrv,
     pubk: PublicKey,
@@ -44,8 +43,8 @@ impl Account {
         Account { prvk, pubk }
     }
 
-    pub fn addr(&self) -> Addr {
-        Addr::unchecked(self.id().as_ref())
+    pub fn addr(&self) -> String {
+        self.id().to_string()
     }
 
     #[allow(unused)]
@@ -92,22 +91,10 @@ mod test {
 
     #[test]
     fn accounts_from_mnemonic() {
-        assert_eq!(
-            a().addr(),
-            Addr::unchecked("secret1ap26qrlp8mcq2pg6r47w43l0y8zkqm8a450s03")
-        );
-        assert_eq!(
-            b().addr(),
-            Addr::unchecked("secret1fc3fzy78ttp0lwuujw7e52rhspxn8uj52zfyne")
-        );
-        assert_eq!(
-            c().addr(),
-            Addr::unchecked("secret1ajz54hz8azwuy34qwy9fkjnfcrvf0dzswy0lqq")
-        );
-        assert_eq!(
-            d().addr(),
-            Addr::unchecked("secret1ldjxljw7v4vk6zhyduywh04hpj0jdwxsmrlatf")
-        );
+        assert_eq!(a().addr(), "secret1ap26qrlp8mcq2pg6r47w43l0y8zkqm8a450s03");
+        assert_eq!(b().addr(), "secret1fc3fzy78ttp0lwuujw7e52rhspxn8uj52zfyne");
+        assert_eq!(c().addr(), "secret1ajz54hz8azwuy34qwy9fkjnfcrvf0dzswy0lqq");
+        assert_eq!(d().addr(), "secret1ldjxljw7v4vk6zhyduywh04hpj0jdwxsmrlatf");
     }
 }
 

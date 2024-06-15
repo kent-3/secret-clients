@@ -26,7 +26,6 @@ use secretrs::{
     tendermint::Block,
 };
 use serde::{Deserialize, Serialize};
-use tonic::body::BoxBody;
 use tracing::{debug, info, trace};
 use tracing_subscriber::{fmt::format::DefaultFields, EnvFilter};
 
@@ -70,19 +69,18 @@ async fn main() -> Result<()> {
         .collect();
     info!("{:?}", validator_monikers);
 
-    // it works!
-    //
     // let contract_address = "secret19gtpkk25r0c36gtlyrc6repd3q52ngmkpfszw3";
-    // let code_hash = "9a00ca4ad505e9be7e6e6dddf8d939b7ec7e9ac8e109c8681f10db9cacb36d42";
-    // let query = QueryMsg::TokenInfo {};
-    //
-    // let secret_contract_response = secretrs
-    //     .query
-    //     .compute
-    //     .query_secret_contract(contract_address, code_hash, query)
-    //     .await?;
-    // println!(" {}", secret_contract_response.bright_white());
-    //
+    let contract_address = "secret1s09x2xvfd2lp2skgzm29w2xtena7s8fq98v852";
+    let code_hash = "9a00ca4ad505e9be7e6e6dddf8d939b7ec7e9ac8e109c8681f10db9cacb36d42";
+    let query = QueryMsg::TokenInfo {};
+
+    let secret_contract_response = secretrs
+        .query
+        .compute
+        .query_secret_contract(contract_address, code_hash, query)
+        .await?;
+    info!("{}", secret_contract_response);
+
     // it works!
     // let deserialized: QueryAnswer = serde_json::from_str(&secret_contract_response)?;
     // println!(" {:?}", deserialized.magenta());

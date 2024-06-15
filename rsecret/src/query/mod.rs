@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::secret_network_client::CreateQuerierOptions;
 use crate::CreateClientOptions;
 use crate::{Error, Result};
 use tonic::codegen::{Body, Bytes, StdError};
@@ -116,17 +117,17 @@ where
 
 #[cfg(not(target_arch = "wasm32"))]
 impl MiniQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
+    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: &CreateClientOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), &options);
+        let compute = ComputeQuerier::new(channel.clone(), options);
         let tendermint = TendermintQuerier::new(channel.clone());
         let tx = TxQuerier::new(channel.clone());
 
@@ -142,18 +143,18 @@ impl MiniQuerier<::tonic::transport::Channel> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Querier<::tonic::transport::Channel> {
-    pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
+    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: &CreateClientOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), &options);
+        let compute = ComputeQuerier::new(channel.clone(), options);
         let distribution = DistributionQuerier::new(channel.clone());
         let emergency_button = EmergencyButtonQuerier::new(channel.clone());
         let evidence = EvidenceQuerier::new(channel.clone());
@@ -207,7 +208,7 @@ impl Querier<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl MiniQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
         let compute = ComputeQuerier::new(client.clone(), &options);
@@ -226,7 +227,7 @@ impl MiniQuerier<::tonic_web_wasm_client::Client> {
 
 #[cfg(target_arch = "wasm32")]
 impl Querier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());

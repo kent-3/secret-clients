@@ -92,7 +92,7 @@ impl AminoWallet {
             bip39::Mnemonic::from_str(&mnemonic)
         } else {
             use nanorand::rand::Rng;
-            let mut seed = [0; 64];
+            let mut seed = [0u8; 32];
             let mut rng = nanorand::rand::ChaCha8::new();
             rng.fill_bytes(&mut seed);
             bip39::Mnemonic::from_entropy(&seed)

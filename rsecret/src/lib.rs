@@ -10,6 +10,7 @@
 #![doc(test(no_crate_inject, attr(deny(rust_2018_idioms))))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod account;
 mod error;
 pub mod query;
 pub mod secret_network_client;
