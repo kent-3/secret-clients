@@ -24,6 +24,9 @@ where
     inner: TxServiceClient<T>,
 }
 
+use crate::macros::impl_as_ref_for_service_client;
+impl_as_ref_for_service_client!(BankServiceClient<T>);
+
 #[cfg(not(target_arch = "wasm32"))]
 impl BankServiceClient<::tonic::transport::Channel> {
     pub fn new(channel: ::tonic::transport::Channel) -> Self {

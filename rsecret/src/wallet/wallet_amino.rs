@@ -130,7 +130,6 @@ impl AminoWallet {
         &self.bech32_prefix
     }
 }
-
 #[async_trait]
 impl AminoSigner for AminoWallet {
     /// Get the accounts associated with this wallet.
@@ -166,6 +165,14 @@ impl AminoSigner for AminoWallet {
             )?,
         })
     }
+
+    async fn sign_permit(
+        &self,
+        signer_address: &str,
+        sign_doc: StdSignDoc,
+    ) -> Result<AminoSignResponse> {
+        todo!()
+    }
 }
 
 /// Encodes a secp256k1 signature object.
@@ -190,7 +197,7 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
     }
 
     Ok(Pubkey {
-        r#type: "tendermint/PubKeySecp256k1",
+        r#type: "tendermint/PubKeySecp256k1".to_string(),
         value: BASE64_STANDARD.encode(&pubkey),
     })
 }
@@ -203,7 +210,7 @@ pub struct AminoMsg {
 }
 
 /// Response after signing with Amino.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AminoSignResponse {
     /// The sign_doc that was signed.
     ///
@@ -234,25 +241,35 @@ pub struct StdFee {
 }
 
 /// Standard signature.
-#[allow(non_snake_case)]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StdSignature {
+    #[serde(alias = "pubKey")]
     pub pub_key: Pubkey,
-    // TODO: I guess cosmjs/Keplr uses camelCase, so we need a way to handle that?
-    // pub pubKey: Pubkey
     pub signature: String,
 }
 
-/// Public key type.
-///
-/// Possible types include:
-/// - "tendermint/PubKeySecp256k1"
-/// - "tendermint/PubKeyEd25519"
-/// - "tendermint/PubKeySr25519
-#[derive(Debug, Clone)]
+// TODO: use this enum instead of Strings
+
+/// Enum for allowed public key types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PubkeyType {
+    #[serde(rename = "tendermint/PubKeySecp256k1")]
+    PubKeySecp256k1,
+    #[serde(rename = "tendermint/PubKeyEd25519")]
+    PubKeyEd25519,
+    #[serde(rename = "tendermint/PubKeySr25519")]
+    PubKeySr25519,
+}
+
+/// Public key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pubkey {
-    pub r#type: &'static str,
-    // TODO: is this supposed to be a string or bytes?
+    /// Possible types include:
+    /// - "tendermint/PubKeySecp256k1"
+    /// - "tendermint/PubKeyEd25519"
+    /// - "tendermint/PubKeySr25519
+    pub r#type: String,
+    /// Base64 encoded String
     pub value: String,
 }
 
@@ -299,43 +316,14 @@ pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
     json_sorted_stringify(&value).as_bytes().to_vec()
 }
 
-#[derive(Debug, Clone)]
-pub enum SignDocVariant {
-    SignDoc(SignDoc),
-    SignDocCamelCase(SignDocCamelCase),
-}
-
-/// Response after signing with Amino.
-#[derive(Debug)]
-pub struct DirectSignResponse {
-    /// The sign doc that was signed.
-    /// This may be different from the input SignDoc when the signer modifies it as part of the signing process.
-    pub signed: SignDocVariant,
-    pub signature: StdSignature,
-}
-
-#[async_trait]
-pub trait DirectSigner {
-    async fn get_accounts(&self) -> Result<Vec<AccountData>>;
-    async fn sign_direct(
-        &self,
-        signer_address: &str,
-        sign_doc: SignDocVariant,
-    ) -> Result<DirectSignResponse>;
-}
-
 #[async_trait]
 pub trait AminoSigner {
     /// Get AccountData array from wallet. Rejects if not enabled.
-    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
-        // TODO: should these return Errors or panic?
-        Err("not enabled".into())
-    }
+    async fn get_accounts(&self) -> Result<Vec<AccountData>>;
 
     /// Get [SignMode] for signing a tx.
     async fn get_sign_mode(&self) -> Result<SignMode> {
-        // TODO: should these return Errors or panic?
-        unimplemented!()
+        Ok(SignMode::LegacyAminoJson)
     }
 
     /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
@@ -344,22 +332,18 @@ pub trait AminoSigner {
     /// return the doc that was signed in the response.
     async fn sign_amino(
         &self,
-        _signer_address: &str,
-        _sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
-        Err("not enabled".into())
-    }
+        signer_address: &str,
+        sign_doc: StdSignDoc,
+    ) -> Result<AminoSignResponse>;
 
     async fn sign_permit(
         &self,
-        _signer_address: &str,
-        _sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
-        Err("not enabled".into())
-    }
+        signer_address: &str,
+        sign_doc: StdSignDoc,
+    ) -> Result<AminoSignResponse>;
 }
 
 // enum Signer {
-//     Amino(Box<dyn AminoSigner + Sync>),
-//     Direct(Box<dyn DirectSigner + Sync>),
+//     Amino(Box<dyn AminoSigner + Send>),
+//     Direct(Box<dyn DirectSigner + Send>),
 // }

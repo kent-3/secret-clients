@@ -37,6 +37,8 @@ pub enum Error {
     FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
+    #[error(transparent)]
+    ParseInt(#[from] std::num::ParseIntError),
 
     #[error(transparent)]
     SecretRs(#[from] secretrs::Error),

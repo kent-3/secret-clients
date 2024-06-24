@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use hex::decode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
@@ -20,12 +20,12 @@ use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
 use secretrs::{
-    abci::TxMsgData,
+    abci::{MsgData, TxMsgData},
     proto::{
         cosmos::{
             base::{
                 abci::v1beta1::{
-                    AbciMessageLog, MsgData, TxMsgData as TxMsgDataProto,
+                    AbciMessageLog, MsgData as MsgDataProto, TxMsgData as TxMsgDataProto,
                     TxResponse as TxResponseProto,
                 },
                 query::v1beta1::PageRequest,
@@ -604,7 +604,7 @@ where
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            *msg_data = MsgData { msg_type, data }
+                            *msg_data = MsgDataProto { msg_type, data }
                         }
                         debug!("unable to decrypt... oh well!");
                     }
@@ -617,7 +617,7 @@ where
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            *msg_data = MsgData { msg_type, data }
+                            *msg_data = MsgDataProto { msg_type, data }
                         }
                         debug!("unable to decrypt... oh well!");
                     }
@@ -629,7 +629,7 @@ where
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            *msg_data = MsgData { msg_type, data }
+                            *msg_data = MsgDataProto { msg_type, data }
                         }
                         debug!("unable to decrypt... oh well!");
                     }
@@ -642,7 +642,7 @@ where
             }
         }
         #[allow(deprecated)]
-        let data = data.data;
+        let data: MsgData = data.data.try_into()?;
 
         // TODO: Process, decrypt the logs!
         let logs = tx_response.logs;
@@ -828,6 +828,182 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
     (gas_limit as f32 * gas_price).ceil() as u128
 }
 
+use secretrs::utils::encryption::SecretMsg;
+
+pub trait Enigma {
+    fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg>;
+    fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
+    fn decrypt_tx_response<'a>(&'a self, tx: &'a mut TxResponse) -> Result<&'a mut TxResponse>;
+}
+
+#[async_trait]
+pub trait TxDecoder {
+    fn decode_tx_responses(
+        &self,
+        tx_responses: Vec<TxResponseProto>,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<Vec<TxResponse>> {
+        tx_responses
+            .into_iter()
+            .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
+            .collect()
+    }
+
+    fn decode_tx_response(
+        &self,
+        tx_response: TxResponseProto,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<TxResponse> {
+        let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
+
+        let Some(any) = tx_response.tx else {
+            return Err("missing field: 'tx'".into());
+        };
+
+        debug!("processing tx...");
+        let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
+
+        debug!("processing data...");
+        let mut data =
+            <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
+
+        #[allow(deprecated)]
+        let data = data.data;
+
+        let logs = tx_response.logs;
+
+        // TODO:
+        let ibc_responses = None;
+
+        debug!("processing events...");
+        let events = tx_response
+            .events
+            .into_iter()
+            .map(|event| Ok(event.try_into()?))
+            .collect::<Result<Vec<Event>>>()?;
+
+        Ok(TxResponse {
+            height: tx_response.height as u64,
+            txhash: tx_response.txhash.to_uppercase(),
+            code: tx_response.code,
+            codespace: tx_response.codespace,
+            data,
+            raw_log: tx_response.raw_log,
+            logs,
+            ibc_responses,
+            info: tx_response.info,
+            gas_wanted: tx_response.gas_wanted as u64,
+            gas_used: tx_response.gas_used as u64,
+            tx,
+            timestamp: tx_response.timestamp,
+            events,
+        })
+    }
+}
+
+#[async_trait]
+pub trait Signer {
+    async fn broadcast_tx(
+        &self,
+        tx_bytes: Vec<u8>,
+        timeout_ms: u32,
+        check_interval_ms: u32,
+        mode: BroadcastMode,
+        wait_for_commit: bool,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<TxResponse> {
+        // Default implementation
+        todo!()
+    }
+
+    /// Prepare and sign an array of messages as a transaction.
+    async fn sign_tx<M: Msg + Send>(&self, messages: Vec<M>, tx_options: TxOptions) -> Result<Raw> {
+        self.prepare_and_sign(messages, tx_options, false).await
+    }
+
+    /// Broadcast a signed transaction.
+    async fn broadcast_signed_tx(
+        &self,
+        tx_bytes: Vec<u8>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponse> {
+        self.broadcast_tx(
+            tx_bytes,
+            tx_options.broadcast_timeout_ms,
+            tx_options.broadcast_check_interval_ms,
+            tx_options.broadcast_mode,
+            tx_options.wait_for_commit,
+            None,
+        )
+        .await
+    }
+
+    async fn prepare_and_sign<M: Msg + Send>(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+        simulate: bool,
+    ) -> Result<Raw> {
+        let gas_limit = tx_options.gas_limit;
+        let gas_price_in_fee_denom = tx_options.gas_price_in_fee_denom;
+        let fee_denom = tx_options.fee_denom;
+        let memo = tx_options.memo;
+        let fee_granter = tx_options.fee_granter;
+
+        let explicit_signer_data = tx_options.explicit_signer_data;
+
+        let tx_raw = self
+            .sign(
+                messages,
+                StdFee {
+                    gas: format!("{gas_limit}"),
+                    amount: vec![Coin::new(
+                        gas_to_fee(gas_limit, gas_price_in_fee_denom),
+                        &fee_denom,
+                    )?],
+                    granter: fee_granter,
+                },
+                memo,
+                explicit_signer_data,
+                simulate,
+            )
+            .await?;
+
+        Ok(Raw::from(tx_raw))
+    }
+
+    /// Signs a transaction.
+    ///
+    /// Gets account number and sequence from the API, creates a sign doc, creates a single signature, and assembles the signed transaction.
+    /// The sign mode (SIGN_MODE_DIRECT or SIGN_MODE_LEGACY_AMINO_JSON) is determined by this client's signer.
+    ///
+    /// You can pass signer data (account number, sequence and chain ID) explicitly instead of querying them
+    /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
+    async fn sign<M: Msg + Send>(
+        &self,
+        messages: Vec<M>,
+        fee: StdFee,
+        memo: String,
+        explicit_signer_data: Option<SignerData>,
+        simulate: bool,
+    ) -> Result<TxRaw> {
+        todo!()
+    }
+}
+
+use crate::tx::{ComputeServiceClient, TxServiceClient};
+
+#[async_trait]
+impl<T> TxDecoder for TxServiceClient<T>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T: Clone,
+{
+}
+
 // TODO: we need some generic 'Msg' type to be used in all these methods.
 // I think one exists in cosmrs... but that probably won't have a to_amino method
 //
@@ -869,7 +1045,6 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
 //     }
 // }
 
-/// SignDoc is the type used for generating sign bytes for SIGN_MODE_DIRECT.
 #[derive(Debug, Clone)]
 #[allow(non_snake_case)]
 pub struct SignDocCamelCase {
@@ -888,6 +1063,25 @@ pub struct SignDocCamelCase {
 
     /// `accountNumber` is the account number of the account in state.
     pub accountNumber: String,
+}
+
+impl SignDocCamelCase {
+    pub fn into_bytes(self) -> Result<Vec<u8>> {
+        Ok(SignDoc::try_from(self)?.into_bytes()?)
+    }
+}
+
+impl TryFrom<SignDocCamelCase> for SignDoc {
+    type Error = crate::Error;
+
+    fn try_from(doc: SignDocCamelCase) -> Result<Self> {
+        Ok(SignDoc {
+            body_bytes: doc.bodyBytes,
+            auth_info_bytes: doc.authInfoBytes,
+            chain_id: doc.chainId,
+            account_number: doc.accountNumber.parse()?,
+        })
+    }
 }
 
 #[repr(u32)]

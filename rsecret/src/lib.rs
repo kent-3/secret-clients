@@ -18,6 +18,8 @@ pub mod wallet;
 
 mod bonus;
 
+pub(crate) mod macros;
+
 // TODO:
 pub mod tx;
 
