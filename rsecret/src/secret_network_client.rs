@@ -366,11 +366,15 @@ impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
         client: ::tonic_web_wasm_client::Client,
         options: CreateClientOptions,
     ) -> Result<Self> {
+        // if no Wallet is provided, a random one is created
         let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
             Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
         }));
 
+        // if no EncryptionUtils is provided, one is created
         let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+            // if no seed is provided, one is randomly generated
+            // TODO: query the chain for the enclave IO pubkey
             EncryptionUtils::new(options.encryption_seed.clone(), options.chain_id).unwrap()
         });
 
@@ -379,7 +383,7 @@ impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
             chain_id: options.chain_id,
             encryption_utils: encryption_utils.clone(),
         };
-        let query = Querier::new(channel.clone(), query_client_options);
+        let query = Querier::new(client.clone(), query_client_options);
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
@@ -388,7 +392,7 @@ impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
             encryption_utils: encryption_utils.clone(),
         };
-        let tx = TxSender::new(channel.clone(), tx_client_options);
+        let tx = TxSender::new(client.clone(), tx_client_options);
 
         return Ok(Self {
             url: options.url.into(),
@@ -642,7 +646,11 @@ where
             }
         }
         #[allow(deprecated)]
-        let data: MsgData = data.data.try_into()?;
+        let data = data
+            .data
+            .into_iter()
+            .map(|item| MsgData::try_from(item).map_err(Error::from))
+            .collect::<Result<Vec<MsgData>>>()?;
 
         // TODO: Process, decrypt the logs!
         let logs = tx_response.logs;
@@ -868,7 +876,11 @@ pub trait TxDecoder {
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
         #[allow(deprecated)]
-        let data = data.data;
+        let data = data
+            .data
+            .into_iter()
+            .map(|item| MsgData::try_from(item).map_err(Error::from))
+            .collect::<Result<Vec<MsgData>>>()?;
 
         let logs = tx_response.logs;
 
