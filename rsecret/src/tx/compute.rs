@@ -2,7 +2,7 @@ use crate::query::auth::BaseAccount;
 use crate::query::auth::QueryAccountRequest;
 use crate::secret_network_client::CreateTxSenderOptions;
 use crate::secret_network_client::TxResponse;
-use crate::wallet::DirectSigner;
+use crate::wallet::Signer;
 use crate::wallet::Wallet;
 use crate::wallet::WalletOptions;
 use base64::prelude::{Engine as _, BASE64_STANDARD};

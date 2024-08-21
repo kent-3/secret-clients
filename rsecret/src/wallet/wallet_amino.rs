@@ -132,7 +132,7 @@ impl AminoWallet {
 }
 
 #[async_trait]
-impl AminoSigner for AminoWallet {
+impl super::Signer for AminoWallet {
     type Error = crate::Error;
 
     /// Get the accounts associated with this wallet.
@@ -142,6 +142,10 @@ impl AminoSigner for AminoWallet {
             algo: Algo::Secp256k1,
             pubkey: self.public_key.to_bytes(),
         }])
+    }
+
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+        Ok(SignMode::LegacyAminoJson)
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
@@ -175,6 +179,14 @@ impl AminoSigner for AminoWallet {
         sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
         todo!()
+    }
+
+    async fn sign_direct(
+        &self,
+        signer_address: &str,
+        sign_doc: super::SignDocVariant,
+    ) -> std::result::Result<super::DirectSignResponse, Self::Error> {
+        unimplemented!()
     }
 }
 

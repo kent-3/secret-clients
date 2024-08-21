@@ -90,7 +90,7 @@ pub trait DirectSigner {
 }
 
 #[async_trait]
-impl DirectSigner for Wallet {
+impl super::Signer for Wallet {
     type Error = crate::Error;
 
     async fn get_accounts(&self) -> Result<Vec<AccountData>> {
@@ -99,6 +99,10 @@ impl DirectSigner for Wallet {
             algo: Algo::Secp256k1,
             pubkey: self.0.public_key.to_bytes(),
         }])
+    }
+
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+        Ok(SignMode::Direct)
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
