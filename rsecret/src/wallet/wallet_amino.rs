@@ -130,8 +130,11 @@ impl AminoWallet {
         &self.bech32_prefix
     }
 }
+
 #[async_trait]
 impl AminoSigner for AminoWallet {
+    type Error = crate::Error;
+
     /// Get the accounts associated with this wallet.
     async fn get_accounts(&self) -> Result<Vec<AccountData>> {
         Ok(vec![AccountData {
@@ -275,7 +278,7 @@ pub struct Pubkey {
 
 /// Algorithm types used for signing.
 #[allow(unused)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Algo {
     Secp256k1,
     Ed25519,
@@ -283,11 +286,21 @@ pub enum Algo {
 }
 
 /// Data related to an account.
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AccountData {
     pub address: String,
     pub algo: Algo,
     pub pubkey: Vec<u8>,
+}
+
+impl std::fmt::Debug for AccountData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Account")
+            .field("address", &self.address)
+            .field("algo", &self.algo)
+            .field("pubkey", &BASE64_STANDARD.encode(&self.pubkey)) // Convert pubkey to base64
+            .finish()
+    }
 }
 
 /// Sorts a JSON object by its keys recursively.
@@ -318,11 +331,13 @@ pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
 
 #[async_trait]
 pub trait AminoSigner {
+    type Error;
+
     /// Get AccountData array from wallet. Rejects if not enabled.
-    async fn get_accounts(&self) -> Result<Vec<AccountData>>;
+    async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;
 
     /// Get [SignMode] for signing a tx.
-    async fn get_sign_mode(&self) -> Result<SignMode> {
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
         Ok(SignMode::LegacyAminoJson)
     }
 
@@ -334,13 +349,13 @@ pub trait AminoSigner {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse>;
+    ) -> std::result::Result<AminoSignResponse, Self::Error>;
 
     async fn sign_permit(
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse>;
+    ) -> std::result::Result<AminoSignResponse, Self::Error>;
 }
 
 // enum Signer {

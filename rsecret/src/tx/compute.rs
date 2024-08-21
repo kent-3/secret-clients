@@ -2,8 +2,7 @@ use crate::query::auth::BaseAccount;
 use crate::query::auth::QueryAccountRequest;
 use crate::secret_network_client::CreateTxSenderOptions;
 use crate::secret_network_client::TxResponse;
-use crate::wallet::wallet_amino::AminoWallet;
-use crate::wallet::wallet_proto::DirectSigner;
+use crate::wallet::DirectSigner;
 use crate::wallet::Wallet;
 use crate::wallet::WalletOptions;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
@@ -263,8 +262,8 @@ impl ComputeServiceClient<::tonic::transport::Channel> {
 #[cfg(target_arch = "wasm32")]
 impl ComputeServiceClient<::tonic_web_wasm_client::Client> {
     pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
-        let inner = TxServiceClient::new(channel.clone());
-        let auth = AuthQueryClient::new(channel);
+        let inner = TxServiceClient::new(client.clone());
+        let auth = AuthQueryClient::new(client);
 
         let wallet = options.wallet;
         let wallet_address = options.wallet_address;

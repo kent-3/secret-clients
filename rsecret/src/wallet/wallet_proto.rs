@@ -56,11 +56,13 @@ pub struct DirectSignResponse {
 
 #[async_trait]
 pub trait DirectSigner {
+    type Error;
+
     /// Get AccountData array from wallet. Rejects if not enabled.
-    async fn get_accounts(&self) -> Result<Vec<AccountData>>;
+    async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;
 
     /// Get [SignMode] for signing a tx.
-    async fn get_sign_mode(&self) -> Result<SignMode> {
+    fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
         Ok(SignMode::Direct)
     }
 
@@ -72,23 +74,25 @@ pub trait DirectSigner {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse>;
+    ) -> std::result::Result<AminoSignResponse, Self::Error>;
 
     async fn sign_permit(
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse>;
+    ) -> std::result::Result<AminoSignResponse, Self::Error>;
 
     async fn sign_direct(
         &self,
         signer_address: &str,
         sign_doc: SignDocVariant,
-    ) -> Result<DirectSignResponse>;
+    ) -> std::result::Result<DirectSignResponse, Self::Error>;
 }
 
 #[async_trait]
 impl DirectSigner for Wallet {
+    type Error = crate::Error;
+
     async fn get_accounts(&self) -> Result<Vec<AccountData>> {
         Ok(vec![AccountData {
             address: self.0.address.clone(),

@@ -47,18 +47,18 @@ impl Account {
         self.id().to_string()
     }
 
-    #[allow(unused)]
-    // TODO - change this back to pub(crate) later
-    pub fn signing_key(&self) -> SigningKey {
-        SigningKey::from(&self.prvk)
-    }
-
     pub(crate) fn id(&self) -> AccountId {
         self.pubk
             .account_id("secret")
             .expect("invalid public key type")
     }
 
+    #[allow(unused)]
+    pub(crate) fn signing_key(&self) -> SigningKey {
+        SigningKey::from(&self.prvk)
+    }
+
+    #[allow(unused)]
     pub(crate) fn prv_pub_bytes(&self) -> ([u8; 32], [u8; 32]) {
         let mut secret = [0u8; 32];
         secret.clone_from_slice(&self.prvk.private_key().to_bytes());

@@ -50,10 +50,9 @@ impl ComputeQuerier<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl ComputeQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: &CreateClientOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
         let inner = ComputeQueryClient::new(client);
-        let encryption_utils = EncryptionUtils::new(options.encryption_seed, options.chain_id)
-            .expect("failed to create EncryptionUtils");
+        let encryption_utils = options.encryption_utils;
         let code_hash_cache = HashMap::new();
         Self {
             inner,

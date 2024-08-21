@@ -95,14 +95,15 @@ impl CreateClientOptions {
 // NOTE: these technically don't require the chain_id, because the EncryptionUtils are provided,
 // but I'll leave it here just in case.
 
-#[derive(Debug)]
+// TODO: bad design when a Channel or Client is provided (they already have a URL)
+#[derive(Debug, Clone)]
 pub struct CreateQuerierOptions {
     pub url: &'static str,
     pub chain_id: &'static str,
     pub encryption_utils: EncryptionUtils,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CreateTxSenderOptions {
     pub url: &'static str,
     pub chain_id: &'static str,
@@ -791,6 +792,8 @@ where
             .await?
             .to_bytes()?;
 
+        // TODO: figure out if this is deprecated in 0.45 or not
+        #[allow(deprecated)]
         let request = SimulateRequest { tx: None, tx_bytes };
         let response = self.tx.simulate(request).await?;
 

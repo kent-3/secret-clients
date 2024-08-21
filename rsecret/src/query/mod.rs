@@ -211,7 +211,7 @@ impl MiniQuerier<::tonic_web_wasm_client::Client> {
     pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), &options);
+        let compute = ComputeQuerier::new(client.clone(), options);
         let tendermint = TendermintQuerier::new(client.clone());
         let tx = TxQuerier::new(client.clone());
 
@@ -231,7 +231,7 @@ impl Querier<::tonic_web_wasm_client::Client> {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), &options);
+        let compute = ComputeQuerier::new(client.clone(), options);
         let distribution = DistributionQuerier::new(client.clone());
         let emergency_button = EmergencyButtonQuerier::new(client.clone());
         let evidence = EvidenceQuerier::new(client.clone());
