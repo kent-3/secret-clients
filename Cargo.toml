@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["rsecret"]
-exclude = ["secret-grpc", "secret-grpc-gateway"]
+exclude = ["secret-rpc", "secret-grpc-gateway"]
 
 [patch.crates-io]
 secretrs = { path = "../secret-rust/secretrs" }

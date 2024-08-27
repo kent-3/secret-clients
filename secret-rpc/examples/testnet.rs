@@ -1,4 +1,4 @@
-use secret_grpc::Contract;
+use secret_rpc::Contract;
 
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ pub enum QueryAnswer {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let client = secret_grpc::SecretRPC::new()
+    let client = secret_rpc::SecretRPC::new()
         .host("http://rpc.testnet.secretsaturn.net")
         .enclave_key("e2b40597d50457d95290bdee480b8bc3400e9f40c2a5d69c9519f1fee2e24933")
         .connect()
@@ -37,7 +37,7 @@ async fn main() {
         .query_contract(
             &QueryMsg::TokenInfo {},
             &contract,
-            &secret_grpc::account::a(),
+            &secret_rpc::account::a(),
         )
         .await
         .unwrap();

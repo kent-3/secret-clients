@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let account = secret_grpc::Account::random();
+    let account = secret_rpc::Account::random();
     println!("{}", account.addr());
 
-    let client = secret_grpc::SecretRPC::new()
+    let client = secret_rpc::SecretRPC::new()
         // .host("http://lcd.mainnet.secretsaturn.net")
         // .enclave_key("efdfbee583877e6d12c219695030a5bfb72e0a3abdc416655aa4a30c95a4446f")
         .host("http://lcd.testnet.secretsaturn.net")
@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         .connect()
         .unwrap();
 
-    let contract = secret_grpc::Contract::try_from_address_with_code_hash(
+    let contract = secret_rpc::Contract::try_from_address_with_code_hash(
         // "secret1s09x2xvfd2lp2skgzm29w2xtena7s8fq98v852",
         "secret19gtpkk25r0c36gtlyrc6repd3q52ngmkpfszw3",
         "9a00ca4ad505e9be7e6e6dddf8d939b7ec7e9ac8e109c8681f10db9cacb36d42",

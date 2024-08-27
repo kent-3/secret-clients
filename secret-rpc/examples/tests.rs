@@ -1,7 +1,7 @@
 #[allow(unused)]
 use log::{debug, error, info, warn};
 
-use secret_grpc::client::SecretNetworkClient;
+use secret_rpc::client::SecretNetworkClient;
 
 use color_eyre::Result;
 
@@ -11,8 +11,8 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
     pretty_env_logger::init();
 
-    // Returns a `secret_grpc::Client`
-    // let client = secret_grpc::SecretRPC::new()
+    // Returns a `secret_rpc::Client`
+    // let client = secret_rpc::SecretRPC::new()
     //     .host("http://lcd.testnet.secretsaturn.net")
     //     .enclave_key("e2b40597d50457d95290bdee480b8bc3400e9f40c2a5d69c9519f1fee2e24933")
     //     .chain_id("secret-4")
@@ -34,13 +34,13 @@ async fn main() -> Result<()> {
 
     let resp = secretrs
         .auth
-        .account(secret_grpc::account::a().addr())
+        .account(secret_rpc::account::a().addr())
         .await
         .unwrap();
     info!(target: "auth", "{resp:?}");
 
     // There are 4 different possible types of accounts associated with an address
-    // use secret_grpc::query::auth::Account;
+    // use secret_rpc::query::auth::Account;
     // match resp {
     //     Account::BaseAccount(base) => {
     //         info!(target: "auth", "{:?}", base)
@@ -68,13 +68,13 @@ async fn main() -> Result<()> {
     // Bank
 
     // let resp = client
-    //     .bank_balance(secret_grpc::account::a().addr().to_string(), "uscrt")
+    //     .bank_balance(secret_rpc::account::a().addr().to_string(), "uscrt")
     //     .await?;
     // info!(target: "bank", "{resp:?}");
     //
     // let resp = client
     //     .bank_all_balances(
-    //         secret_grpc::account::a().addr().to_string(),
+    //         secret_rpc::account::a().addr().to_string(),
     //         one_page.clone(),
     //     )
     //     .await?;

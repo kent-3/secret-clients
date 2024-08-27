@@ -1833,6 +1833,8 @@ dependencies = [
 [[package]]
 name = "secret-sdk-proto"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e10b7a59e04ba52ad8527ce240bc9642ca716b26a32b7e91a4dea5963411d1e1"
 dependencies = [
  "bumpalo",
  "cosmos-sdk-proto",
@@ -1845,6 +1847,8 @@ dependencies = [
 [[package]]
 name = "secretrs"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbba3b9315797fa2acd16eee01ab5d2a3c16ff1c43592004011022ddcd14b425"
 dependencies = [
  "aes-siv",
  "async-trait",
@@ -2854,3 +2858,7 @@ dependencies = [
  "quote",
  "syn 2.0.68",
 ]
+
+[[patch.unused]]
+name = "secretrs"
+version = "0.1.1"

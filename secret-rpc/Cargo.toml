@@ -1,5 +1,5 @@
 [package]
-name = "secret-grpc"
+name = "secret-rpc"
 version = "0.1.0"
 authors = ["Kent"]
 license = "Unlicense"
@@ -35,7 +35,11 @@ thiserror = "1.0.51"
 # secret-sdk-proto = { version = "0.0" }
 cosmrs = { version = "0.16.0", features = ["bip32", "rpc", "grpc"] }
 secretrs = { features = ["bip32", "rpc", "grpc"], path = "../secretrs" }
-tonic = { version = "0.11.0", features = ["tls", "tls-webpki-roots", "transport"] }
+tonic = { version = "0.11.0", features = [
+  "tls",
+  "tls-webpki-roots",
+  "transport",
+] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # secret-sdk-proto = { version = "0.0", default-features = false, features = ["grpc"] }

@@ -1,18 +1,18 @@
 use color_eyre::{eyre::Result, owo_colors::OwoColorize};
-use secret_grpc::TendermintClient;
+use secret_rpc::TendermintClient;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let client = secret_grpc::SecretRPC::new()
+    let client = secret_rpc::SecretRPC::new()
         .host("http://lcd.testnet.secretsaturn.net")
         .enclave_key("e2b40597d50457d95290bdee480b8bc3400e9f40c2a5d69c9519f1fee2e24933")
         .chain_id("secret-4")
         .connect()?;
 
     println!("\n{}", "client.query_uscrt_balance(account)".bold());
-    let account = secret_grpc::account::a();
+    let account = secret_rpc::account::a();
     let balance = client.query_uscrt_balance(account.addr().as_str()).await?;
     println!("\n{}", balance.green());
 
