@@ -27,6 +27,11 @@ impl Wallet {
     pub fn new(amino_wallet: AminoWallet) -> Self {
         Wallet(amino_wallet)
     }
+
+    /// Get [SignMode] for signing a tx.
+    pub async fn get_sign_mode(&self) -> Result<SignMode> {
+        Ok(SignMode::Direct)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -55,42 +60,28 @@ pub struct DirectSignResponse {
 }
 
 #[async_trait]
-pub trait DirectSigner {
+pub trait DirectSigner: AminoSigner {
     type Error;
-
-    /// Get AccountData array from wallet. Rejects if not enabled.
-    async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;
-
-    /// Get [SignMode] for signing a tx.
-    fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
-        Ok(SignMode::Direct)
-    }
 
     /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
     ///
     /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
     /// return the doc that was signed in the response.
-    async fn sign_amino(
+    async fn sign_direct(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Self::Error>;
+        sign_doc: SignDocVariant,
+    ) -> std::result::Result<DirectSignResponse, <Self as DirectSigner>::Error>;
 
     async fn sign_permit(
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Self::Error>;
-
-    async fn sign_direct(
-        &self,
-        signer_address: &str,
-        sign_doc: SignDocVariant,
-    ) -> std::result::Result<DirectSignResponse, Self::Error>;
+    ) -> std::result::Result<AminoSignResponse, <Self as DirectSigner>::Error>;
 }
 
 #[async_trait]
-impl super::Signer for Wallet {
+impl AminoSigner for Wallet {
     type Error = crate::Error;
 
     async fn get_accounts(&self) -> Result<Vec<AccountData>> {
@@ -99,10 +90,6 @@ impl super::Signer for Wallet {
             algo: Algo::Secp256k1,
             pubkey: self.0.public_key.to_bytes(),
         }])
-    }
-
-    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
-        Ok(SignMode::Direct)
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
@@ -137,6 +124,11 @@ impl super::Signer for Wallet {
     ) -> Result<AminoSignResponse> {
         todo!()
     }
+}
+
+#[async_trait]
+impl DirectSigner for Wallet {
+    type Error = crate::Error;
 
     async fn sign_direct(
         &self,
@@ -160,6 +152,14 @@ impl super::Signer for Wallet {
                 &signature.to_bytes(),
             )?,
         })
+    }
+
+    async fn sign_permit(
+        &self,
+        signer_address: &str,
+        sign_doc: StdSignDoc,
+    ) -> Result<AminoSignResponse> {
+        todo!()
     }
 }
 

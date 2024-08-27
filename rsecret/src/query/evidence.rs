@@ -43,8 +43,13 @@ where
     // TODO: decode the Any into the appropriate type/types
     pub async fn evidence(&self, evidence_hash: impl Into<Vec<u8>>) -> Result<Any> {
         let evidence_hash = evidence_hash.into();
+        // TODO: use hash instead of evidence_hash? (check what Secret uses)
+        let hash = String::new();
 
-        let request = QueryEvidenceRequest { evidence_hash };
+        let request = QueryEvidenceRequest {
+            evidence_hash,
+            hash,
+        };
         let response: ::tonic::Response<QueryEvidenceResponse> =
             self.inner.clone().evidence(request).await?;
 

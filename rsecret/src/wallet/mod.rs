@@ -6,8 +6,8 @@ use secretrs::tx::SignMode;
 pub(crate) mod wallet_amino;
 pub(crate) mod wallet_proto;
 
-pub use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc, WalletOptions};
-pub use wallet_proto::{DirectSignResponse, SignDocVariant, Wallet};
+pub use wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdSignDoc, WalletOptions};
+pub use wallet_proto::{DirectSignResponse, DirectSigner, SignDocVariant, Wallet};
 
 #[async_trait]
 pub trait Signer {

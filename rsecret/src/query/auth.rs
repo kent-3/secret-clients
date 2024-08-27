@@ -131,9 +131,12 @@ where
         }
     }
 
+    // TODO: use account_id instead of id? (check what Secret actually uses)
     pub async fn account_address_by_id(&self, id: impl Into<i64>) -> Result<String> {
         let id = id.into();
-        let request = QueryAccountAddressByIdRequest { id };
+        let account_id = 0u64;
+
+        let request = QueryAccountAddressByIdRequest { id, account_id };
         let response: ::tonic::Response<QueryAccountAddressByIdResponse> =
             self.inner.clone().account_address_by_id(request).await?;
 

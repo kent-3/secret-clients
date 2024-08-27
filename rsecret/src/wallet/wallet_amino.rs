@@ -132,7 +132,7 @@ impl AminoWallet {
 }
 
 #[async_trait]
-impl super::Signer for AminoWallet {
+impl AminoSigner for AminoWallet {
     type Error = crate::Error;
 
     /// Get the accounts associated with this wallet.
@@ -179,14 +179,6 @@ impl super::Signer for AminoWallet {
         sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
         todo!()
-    }
-
-    async fn sign_direct(
-        &self,
-        signer_address: &str,
-        sign_doc: super::SignDocVariant,
-    ) -> std::result::Result<super::DirectSignResponse, Self::Error> {
-        unimplemented!()
     }
 }
 

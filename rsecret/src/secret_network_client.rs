@@ -49,7 +49,10 @@ use secretrs::{
     Any, Coin, EncryptionUtils,
 };
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    codegen::{Body, Bytes, StdError},
+    transport::ClientTlsConfig,
+};
 
 #[derive(Debug)]
 pub struct CreateClientOptions {
@@ -305,6 +308,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 impl SecretNetworkClient<::tonic::transport::Channel> {
     pub async fn connect(options: CreateClientOptions) -> Result<Self> {
+        let tls_config = ClientTlsConfig::default();
         let channel = tonic::transport::Channel::from_static(options.url)
             .concurrency_limit(32) // unsure what limit is appropriate
             .rate_limit(32, Duration::from_secs(1)) // 32 reqs/s seems reasonable
@@ -472,6 +476,7 @@ where
             // I think these fields are not used in SDK v0.45
             page: 0,
             limit: 0,
+            query: String::new(),
         };
         let get_txs_event_response = self.query.tx.get_txs_event(get_txs_event_request).await?;
 
