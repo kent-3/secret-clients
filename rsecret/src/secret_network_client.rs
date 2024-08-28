@@ -308,10 +308,11 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 impl SecretNetworkClient<::tonic::transport::Channel> {
     pub async fn connect(options: CreateClientOptions) -> Result<Self> {
-        let tls_config = ClientTlsConfig::default();
+        let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
-            .concurrency_limit(32) // unsure what limit is appropriate
-            .rate_limit(32, Duration::from_secs(1)) // 32 reqs/s seems reasonable
+            .tls_config(tls)?
+            .concurrency_limit(1) // unsure what limit is appropriate
+            .rate_limit(1, Duration::from_secs(1)) // 1 req/s
             .timeout(Duration::from_secs(6)) // server is not aware of this timeout; that ok?
             .connect()
             .await?;
@@ -347,7 +348,7 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
         };
         let tx = TxSender::new(channel.clone(), tx_client_options);
 
-        return Ok(Self {
+        Ok(Self {
             url: options.url.into(),
             query,
             tx,
@@ -355,7 +356,7 @@ impl SecretNetworkClient<::tonic::transport::Channel> {
             address: options.wallet_address.unwrap_or_default().into(),
             chain_id: options.chain_id.into(),
             encryption_utils,
-        });
+        })
     }
 
     // I think it'd be a nice feature to be able to change the default tx options
