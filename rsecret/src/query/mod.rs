@@ -3,6 +3,7 @@
 use crate::secret_network_client::CreateQuerierOptions;
 use crate::CreateClientOptions;
 use crate::{Error, Result};
+use secretrs::EncryptionUtils;
 use tonic::codegen::{Body, Bytes, StdError};
 
 pub mod auth;
@@ -121,13 +122,13 @@ impl MiniQuerier<::tonic::transport::Channel> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options))
+        Ok(Self::new(channel, options.encryption_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), options);
+        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
         let tendermint = TendermintQuerier::new(channel.clone());
         let tx = TxQuerier::new(channel.clone());
 
@@ -147,14 +148,14 @@ impl Querier<::tonic::transport::Channel> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options))
+        Ok(Self::new(channel, options.encryption_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), options);
+        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
         let distribution = DistributionQuerier::new(channel.clone());
         let emergency_button = EmergencyButtonQuerier::new(channel.clone());
         let evidence = EvidenceQuerier::new(channel.clone());
@@ -208,10 +209,10 @@ impl Querier<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl MiniQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), options);
+        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
         let tendermint = TendermintQuerier::new(client.clone());
         let tx = TxQuerier::new(client.clone());
 
@@ -227,11 +228,11 @@ impl MiniQuerier<::tonic_web_wasm_client::Client> {
 
 #[cfg(target_arch = "wasm32")]
 impl Querier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), options);
+        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
         let distribution = DistributionQuerier::new(client.clone());
         let emergency_button = EmergencyButtonQuerier::new(client.clone());
         let evidence = EvidenceQuerier::new(client.clone());

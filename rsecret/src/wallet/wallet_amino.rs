@@ -190,7 +190,7 @@ pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Res
 
     Ok(StdSignature {
         pub_key: encode_secp256k1_pubkey(pubkey)?,
-        signature: BASE64_STANDARD.encode(&signature),
+        signature: BASE64_STANDARD.encode(signature),
     })
 }
 
@@ -205,7 +205,7 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
 
     Ok(Pubkey {
         r#type: "tendermint/PubKeySecp256k1".to_string(),
-        value: BASE64_STANDARD.encode(&pubkey),
+        value: BASE64_STANDARD.encode(pubkey),
     })
 }
 
@@ -335,7 +335,7 @@ pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
 
 #[async_trait]
 pub trait AminoSigner {
-    type Error;
+    type Error: Into<crate::Error>;
 
     /// Get AccountData array from wallet. Rejects if not enabled.
     async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;

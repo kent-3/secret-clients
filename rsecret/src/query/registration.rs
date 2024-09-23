@@ -15,12 +15,12 @@ pub struct RegistrationQuerier<T> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl RegistrationQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
-        let channel = tonic::transport::Channel::from_static(options.url)
-            .connect()
-            .await?;
-        Ok(Self::new(channel))
-    }
+    // pub async fn connect(options: &CreateClientOptions) -> Result<Self> {
+    //     let channel = tonic::transport::Channel::from_static(options.url)
+    //         .connect()
+    //         .await?;
+    //     Ok(Self::new(channel))
+    // }
     pub fn new(channel: ::tonic::transport::Channel) -> Self {
         let inner = RegistrationQueryClient::new(channel);
         Self { inner }

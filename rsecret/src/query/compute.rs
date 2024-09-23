@@ -33,12 +33,12 @@ impl ComputeQuerier<::tonic::transport::Channel> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options))
+        Ok(Self::new(channel, options.encryption_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateQuerierOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
         let inner = ComputeQueryClient::new(channel);
-        let encryption_utils = options.encryption_utils;
+        let encryption_utils = encryption_utils;
         let code_hash_cache = HashMap::new();
         Self {
             inner,
@@ -50,9 +50,9 @@ impl ComputeQuerier<::tonic::transport::Channel> {
 
 #[cfg(target_arch = "wasm32")]
 impl ComputeQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateQuerierOptions) -> Self {
+    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
         let inner = ComputeQueryClient::new(client);
-        let encryption_utils = options.encryption_utils;
+        let encryption_utils = encryption_utils;
         let code_hash_cache = HashMap::new();
         Self {
             inner,

@@ -34,23 +34,27 @@ pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
 use crate::secret_network_client::CreateTxSenderOptions;
+use crate::wallet::{AminoSigner, DirectSigner, Signer};
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug)]
-pub struct TxSender<T>
+pub struct TxSender<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
-    pub compute: ComputeServiceClient<T>,
+    pub compute: ComputeServiceClient<T, S>,
     pub crisis: CrisisServiceClient<T>,
     pub distribution: DistributionServiceClient<T>,
     pub evidence: EvidenceServiceClient<T>,
@@ -62,15 +66,20 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl TxSender<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateTxSenderOptions) -> Result<Self> {
+impl<S> TxSender<::tonic::transport::Channel, S>
+where
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
+{
+    pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S>) -> Self {
         let authz = AuthzServiceClient::new(channel.clone());
         let bank = BankServiceClient::new(channel.clone());
         let compute = ComputeServiceClient::new(channel.clone(), options);
@@ -130,13 +139,16 @@ impl TxSender<::tonic_web_wasm_client::Client> {
     }
 }
 
-impl<T> TxSender<T>
+impl<T, S> TxSender<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
 {
     // TODO - figure out how to support multiple messages
     pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {

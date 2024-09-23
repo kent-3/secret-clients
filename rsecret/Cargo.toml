@@ -24,7 +24,7 @@ aes-siv = "0.7.0"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 # blockchain
-secretrs = { version = "0.1.0" }
+secretrs = { version = "0.1.1" }
 bip39 = "2.0.0"
 
 # errors

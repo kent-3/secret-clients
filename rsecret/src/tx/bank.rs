@@ -8,17 +8,16 @@ use secretrs::{
         tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},
     },
     tendermint::chain,
-    tx::{self, *},
+    tx::{Body, Msg, Raw, SignDoc},
 };
-use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug, Clone)]
 pub struct BankServiceClient<T>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
 {
     inner: TxServiceClient<T>,
@@ -46,14 +45,17 @@ impl BankServiceClient<::tonic_web_wasm_client::Client> {
 impl<T> BankServiceClient<T>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
 {
     pub async fn send(&self, msg: MsgSend, tx_options: TxOptions) -> Result<TxResponse> {
         let tx_body = self.prepare_tx(msg, tx_options)?;
-        let tx_request = todo!();
+        let tx_request = BroadcastTxRequest {
+            tx_bytes: tx_body.into_bytes()?,
+            mode: 1,
+        };
         let tx_response = self
             .perform(tx_request)
             .await?
@@ -68,7 +70,7 @@ where
         todo!()
     }
 
-    fn prepare_tx<M: secretrs::tx::Msg>(&self, msg: M, tx_options: TxOptions) -> Result<tx::Body> {
+    fn prepare_tx<M: Msg>(&self, msg: M, tx_options: TxOptions) -> Result<Body> {
         // TODO: find a way to get chain_id
         let chain_id: chain::Id = "secretdev-1".parse()?;
 
@@ -81,7 +83,7 @@ where
         let timeout_height = 99999999u32;
         let memo = tx_options.memo;
 
-        let tx_body = secretrs::tx::Body::new(vec![msg.to_any()?], memo, timeout_height);
+        let tx_body = Body::new(vec![msg.to_any()?], memo, timeout_height);
 
         Ok(tx_body)
     }

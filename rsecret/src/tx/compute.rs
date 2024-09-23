@@ -1,55 +1,51 @@
-use crate::query::auth::BaseAccount;
-use crate::query::auth::QueryAccountRequest;
-use crate::secret_network_client::CreateTxSenderOptions;
-use crate::secret_network_client::TxResponse;
-use crate::wallet::AminoSigner;
-use crate::wallet::DirectSigner;
-use crate::wallet::Wallet;
-use crate::wallet::WalletOptions;
+use super::{Error, Result};
+use crate::{
+    query::auth::{AuthQuerier, BaseAccount, QueryAccountRequest},
+    secret_network_client::{CreateClientOptions, CreateTxSenderOptions, TxOptions, TxResponse},
+    wallet::{
+        AminoSigner, DirectSignResponse, DirectSigner, SignDocVariant, Signer, Wallet,
+        WalletOptions,
+    },
+};
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
-use secretrs::abci::MsgData;
-use secretrs::proto::secret::compute::v1beta1::{
-    MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
-};
-use secretrs::Any;
-
-use secretrs::utils::encryption::SecretMsg;
-use serde::Serialize;
-use std::str::FromStr;
-use std::sync::Arc;
-use tracing::{debug, info};
-
-use super::{Error, Result};
-use crate::{query::auth::AuthQuerier, CreateClientOptions, TxOptions};
-use secretrs::compute::{
-    MsgExecuteContract, MsgInstantiateContract, MsgMigrateContract, MsgStoreCode,
-};
 use secretrs::{
+    abci::MsgData,
+    compute::{MsgExecuteContract, MsgInstantiateContract, MsgMigrateContract, MsgStoreCode},
     crypto::PublicKey,
     grpc_clients::{AuthQueryClient, TxServiceClient},
-    proto::cosmos::{
-        base::abci::v1beta1::TxResponse as TxResponseProto,
-        tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse},
+    proto::{
+        cosmos::{
+            base::abci::v1beta1::TxResponse as TxResponseProto,
+            tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse, TxRaw},
+        },
+        secret::compute::v1beta1::{
+            MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
+        },
     },
-    tx::{Body as TxBody, BodyBuilder, Fee, Msg, Raw, SignDoc, SignerInfo, Tx},
-    Coin, EncryptionUtils,
+    tx::{Body, BodyBuilder, Fee, Msg, Raw, SignDoc, SignerInfo, Tx},
+    utils::encryption::{EncryptionUtils, SecretMsg},
+    Any, Coin,
 };
-use std::collections::HashMap;
-use tonic::codegen::{Body, Bytes, StdError};
+use serde::Serialize;
+use std::{collections::HashMap, str::FromStr, sync::Arc};
+use tracing::{debug, info};
 
 #[derive(Debug)]
-pub struct ComputeServiceClient<T>
+pub struct ComputeServiceClient<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     inner: TxServiceClient<T>,
     auth: AuthQueryClient<T>,
-    wallet: Arc<Wallet>,
+    wallet: Arc<S>,
     wallet_address: Arc<str>,
     encryption_utils: EncryptionUtils,
     code_hash_cache: HashMap<String, String>,
@@ -61,13 +57,16 @@ where
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 use crate::secret_network_client::Enigma;
-impl<T> Enigma for ComputeServiceClient<T>
+impl<T, S> Enigma for ComputeServiceClient<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
         self.encryption_utils
@@ -164,7 +163,7 @@ where
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.decrypt(&nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
                             let msg_type =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
@@ -178,7 +177,7 @@ where
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.decrypt(&nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -190,7 +189,7 @@ where
                         debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
-                        if let Ok(bytes) = self.decrypt(&nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -212,6 +211,8 @@ where
 
         Ok(tx_response)
 
+        // use this if you want to return a new TxResponse instead of mutating the given one
+
         // Ok(TxResponse {
         //     height: tx_response.height as u64,
         //     txhash: tx_response.txhash.to_uppercase(),
@@ -232,14 +233,19 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl ComputeServiceClient<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateTxSenderOptions) -> Result<Self> {
+impl<S> ComputeServiceClient<::tonic::transport::Channel, S>
+where
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
+{
+    pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S>) -> Self {
         let inner = TxServiceClient::new(channel.clone());
         let auth = AuthQueryClient::new(channel);
 
@@ -259,7 +265,6 @@ impl ComputeServiceClient<::tonic::transport::Channel> {
     }
 }
 
-// TODO: add auth querier
 #[cfg(target_arch = "wasm32")]
 impl ComputeServiceClient<::tonic_web_wasm_client::Client> {
     pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
@@ -282,13 +287,16 @@ impl ComputeServiceClient<::tonic_web_wasm_client::Client> {
     }
 }
 
-impl<T> ComputeServiceClient<T>
+impl<T, S> ComputeServiceClient<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
+    S: Signer,
+    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
+    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     // TODO: I think all the input and output message types should be the proto versions?
     pub async fn store_code(
@@ -312,7 +320,15 @@ where
         msg: MsgInstantiateContract,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
-        todo!()
+        let tx_request = self.prepare_tx(msg, tx_options).await?;
+        let tx_response = self
+            .perform(tx_request)
+            .await?
+            .into_inner()
+            .tx_response
+            .ok_or("no response")?;
+
+        Ok(tx_response)
     }
 
     pub async fn execute_contract(
@@ -343,7 +359,7 @@ where
             mode: tx_options.broadcast_mode.into(),
         };
 
-        let accounts = self.wallet.get_accounts().await?;
+        let accounts = self.wallet.get_accounts().await.unwrap();
         let account = accounts.first().expect("no accounts");
         let address = account.address.clone();
         let public_key =
@@ -388,16 +404,52 @@ where
             denom: "uscrt".parse()?,
         };
 
-        let tx_body = TxBody::new(vec![msg.to_any()?], memo, timeout_height);
+        let tx_body = Body::new(vec![msg.to_any()?], memo, timeout_height);
         let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
         let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(gas_fee, gas));
         let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, account_number)?;
 
-        todo!()
+        // TODO: I do not like this SignDocVariant business...
+        let tx_signed = self.sign(SignDocVariant::SignDoc(sign_doc)).await?;
+        let tx_bytes = tx_signed.to_bytes()?;
+
+        Ok(BroadcastTxRequest { tx_bytes, mode: 1 })
     }
 
-    async fn sign(&self, sign_doc: SignDoc) -> Result<Raw> {
-        todo!()
+    // TODO: Is there any point in returning Raw instead of TxRaw?
+    // More generally, is there any reason to use the cosmrs types over the protobuf types?
+    async fn sign(&self, sign_doc: SignDocVariant) -> Result<Raw> {
+        let signer_address = self.wallet_address.as_ref();
+        let signer = self.wallet.as_ref();
+
+        // TODO: allow for Amino Sign here. Need to add a way to check if the signer is a
+        // DirectSigner, but oops, I've already introduced the Signer trait bound that is both...
+        // I should go back and unify the Signer traits, and impl Signer for AminoWallet
+        // differently from Wallet. And include a get_sign_mode() function.
+        let response: DirectSignResponse = signer
+            .sign_direct(signer_address, sign_doc)
+            .await
+            .map_err(|err| crate::Error::custom(err))?;
+
+        let signed_sign_doc = response.signed;
+        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+
+        let signed_tx_raw = match signed_sign_doc {
+            SignDocVariant::SignDoc(doc) => TxRaw {
+                body_bytes: doc.body_bytes,
+                auth_info_bytes: doc.auth_info_bytes,
+                signatures: vec![signature],
+            },
+            SignDocVariant::SignDocCamelCase(doc) => TxRaw {
+                body_bytes: doc.bodyBytes,
+                auth_info_bytes: doc.authInfoBytes,
+                signatures: vec![signature],
+            },
+        };
+
+        let signed_tx_raw: Raw = signed_tx_raw.into();
+
+        Ok(signed_tx_raw)
     }
 
     async fn perform(

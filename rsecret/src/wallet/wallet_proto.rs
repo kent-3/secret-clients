@@ -45,7 +45,7 @@ pub enum SignDocVariant {
 //     pub fn into_bytes(self) -> Result<Vec<u8>> {
 //         match self {
 //             SignDocVariant::SignDoc(doc) => Ok(doc.into_bytes()?),
-//             SignDocVariant::SignDocCamelCase(doc) => Ok(SignDoc::try_from(doc)?.into_bytes()?),
+//             SignDocVariant::SignDocCamelCase(doc) => Ok(doc.into_bytes()?),
 //         }
 //     }
 // }
@@ -61,7 +61,7 @@ pub struct DirectSignResponse {
 
 #[async_trait]
 pub trait DirectSigner: AminoSigner {
-    type Error;
+    type Error: Into<crate::Error>;
 
     /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
     ///
