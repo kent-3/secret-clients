@@ -1,6 +1,9 @@
-use super::wallet_amino::{
-    encode_secp256k1_signature, serialize_std_sign_doc, AccountData, Algo, AminoSignResponse,
-    AminoSigner, AminoWallet, StdSignDoc, StdSignature,
+use super::{
+    wallet_amino::{
+        encode_secp256k1_signature, serialize_std_sign_doc, AccountData, Algo, AminoSignResponse,
+        AminoSigner, AminoWallet, StdSignDoc, StdSignature,
+    },
+    Signer,
 };
 use crate::{secret_network_client::SignDocCamelCase, Error::InvalidSigner, Result};
 use async_trait::async_trait;
@@ -60,28 +63,7 @@ pub struct DirectSignResponse {
 }
 
 #[async_trait]
-pub trait DirectSigner: AminoSigner {
-    type Error: Into<crate::Error>;
-
-    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
-    ///
-    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
-    /// return the doc that was signed in the response.
-    async fn sign_direct(
-        &self,
-        signer_address: &str,
-        sign_doc: SignDocVariant,
-    ) -> std::result::Result<DirectSignResponse, <Self as DirectSigner>::Error>;
-
-    async fn sign_permit(
-        &self,
-        signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, <Self as DirectSigner>::Error>;
-}
-
-#[async_trait]
-impl AminoSigner for Wallet {
+impl Signer for Wallet {
     type Error = crate::Error;
 
     async fn get_accounts(&self) -> Result<Vec<AccountData>> {
@@ -90,6 +72,10 @@ impl AminoSigner for Wallet {
             algo: Algo::Secp256k1,
             pubkey: self.0.public_key.to_bytes(),
         }])
+    }
+
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+        Ok(SignMode::Direct)
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
@@ -124,11 +110,6 @@ impl AminoSigner for Wallet {
     ) -> Result<AminoSignResponse> {
         todo!()
     }
-}
-
-#[async_trait]
-impl DirectSigner for Wallet {
-    type Error = crate::Error;
 
     async fn sign_direct(
         &self,
@@ -153,14 +134,6 @@ impl DirectSigner for Wallet {
             )?,
         })
     }
-
-    async fn sign_permit(
-        &self,
-        signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
-        todo!()
-    }
 }
 
 #[inline]
@@ -170,4 +143,19 @@ fn serialize_sign_doc(sign_doc: SignDocVariant) -> Result<Vec<u8>> {
         SignDocVariant::SignDoc(sign_doc) => Ok(sign_doc.into_bytes()?),
         SignDocVariant::SignDocCamelCase(sign_doc) => Ok(sign_doc.into_bytes()?),
     }
+}
+
+#[async_trait]
+pub trait DirectSigner: AminoSigner {
+    type Error: Into<crate::Error>;
+
+    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
+    ///
+    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
+    /// return the doc that was signed in the response.
+    async fn sign_direct(
+        &self,
+        signer_address: &str,
+        sign_doc: SignDocVariant,
+    ) -> std::result::Result<DirectSignResponse, <Self as DirectSigner>::Error>;
 }

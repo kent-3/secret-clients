@@ -40,8 +40,6 @@ where
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     inner: TxServiceClient<T>,
     auth: AuthQueryClient<T>,
@@ -65,8 +63,6 @@ where
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
         self.encryption_utils
@@ -236,8 +232,6 @@ where
 impl<S> ComputeServiceClient<::tonic::transport::Channel, S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
 {
     pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
@@ -266,8 +260,8 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl ComputeServiceClient<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
+impl<S> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
         let inner = TxServiceClient::new(client.clone());
         let auth = AuthQueryClient::new(client);
 
@@ -295,8 +289,6 @@ where
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     // TODO: I think all the input and output message types should be the proto versions?
     pub async fn store_code(

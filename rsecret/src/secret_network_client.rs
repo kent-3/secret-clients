@@ -58,8 +58,6 @@ use tonic::transport::ClientTlsConfig;
 pub struct CreateClientOptions<S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
     pub url: &'static str,
@@ -80,8 +78,6 @@ where
 impl<S> Default for CreateClientOptions<S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     fn default() -> Self {
         Self {
@@ -98,8 +94,6 @@ where
 impl<S> CreateClientOptions<S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub fn read_only(url: &'static str, chain_id: &'static str) -> Self {
         Self {
@@ -125,8 +119,6 @@ pub struct CreateQuerierOptions {
 pub struct CreateTxSenderOptions<S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub url: &'static str,
     pub chain_id: &'static str,
@@ -305,6 +297,21 @@ impl IbcResponseType {
 
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
+trait ReadWrite {}
+
+impl<T, S> ReadWrite for TxSender<T, S>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T: Clone,
+    S: Signer,
+{
+}
+
+impl<S> ReadWrite for Arc<S> {}
+
 #[derive(Debug)]
 pub struct SecretNetworkClient<T, S>
 where
@@ -314,12 +321,11 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub url: String,
     pub query: Querier<T>,
     pub tx: TxSender<T, S>,
+    // pub wallet: Arc<dyn Signer<Error = crate::Error>>,
     pub wallet: Arc<S>,
     pub address: String,
     pub chain_id: String,
@@ -329,8 +335,8 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
-    pub async fn connect(options: CreateClientOptions<Wallet>) -> Result<Self> {
+impl<S: Signer> SecretNetworkClient<::tonic::transport::Channel, S> {
+    pub async fn connect(options: CreateClientOptions<S>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
             .tls_config(tls)?
@@ -343,6 +349,56 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
     }
 
     pub fn new(
+        channel: ::tonic::transport::Channel,
+        options: CreateClientOptions<S>,
+    ) -> Result<Self> {
+        // FIXME: bad API. I should be able to create a read-only client if no signer is given.
+        let wallet = options.wallet.expect("Wallet should be provided");
+
+        // if no EncryptionUtils is provided, one is created
+        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+            // if no seed is provided, one is randomly generated
+            // TODO: query the chain for the enclave IO pubkey
+            EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        });
+
+        // let query_client_options = CreateQuerierOptions {
+        //     url: options.url,
+        //     chain_id: options.chain_id,
+        //     encryption_utils: encryption_utils.clone(),
+        // };
+        let query = Querier::new(channel.clone(), encryption_utils.clone());
+
+        let tx_client_options = CreateTxSenderOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            wallet: wallet.clone(),
+            wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
+            encryption_utils: encryption_utils.clone(),
+        };
+        let tx = TxSender::new(channel.clone(), tx_client_options);
+
+        Ok(Self {
+            url: options.url.into(),
+            query,
+            tx,
+            wallet,
+            address: options.wallet_address.unwrap_or_default(),
+            chain_id: options.chain_id.into(),
+            encryption_utils,
+        })
+    }
+
+    // I think it'd be a nice feature to be able to change the default tx options
+    // pub fn tx_options(&mut self, options: TxOptions) -> &mut Self {
+    //     self.tx_options = Arc::new(options);
+    //     self
+    // }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
+    pub fn new_wallet(
         channel: ::tonic::transport::Channel,
         options: CreateClientOptions<Wallet>,
     ) -> Result<Self> {
@@ -393,7 +449,6 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
     //     self
     // }
 }
-
 #[cfg(target_arch = "wasm32")]
 impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
     pub fn new(
@@ -448,8 +503,6 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
     pub async fn get_tx(

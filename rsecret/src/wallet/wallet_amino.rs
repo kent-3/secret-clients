@@ -1,4 +1,9 @@
-use crate::{secret_network_client::SignDocCamelCase, Error::InvalidSigner, Result};
+use crate::{
+    secret_network_client::SignDocCamelCase,
+    wallet::{DirectSignResponse, SignDocVariant, Signer},
+    Error::InvalidSigner,
+    Result,
+};
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -132,7 +137,7 @@ impl AminoWallet {
 }
 
 #[async_trait]
-impl AminoSigner for AminoWallet {
+impl Signer for AminoWallet {
     type Error = crate::Error;
 
     /// Get the accounts associated with this wallet.
@@ -179,6 +184,14 @@ impl AminoSigner for AminoWallet {
         sign_doc: StdSignDoc,
     ) -> Result<AminoSignResponse> {
         todo!()
+    }
+
+    async fn sign_direct(
+        &self,
+        signer_address: &str,
+        sign_doc: SignDocVariant,
+    ) -> std::result::Result<DirectSignResponse, Self::Error> {
+        unimplemented!("This is an Amino Wallet")
     }
 }
 
@@ -361,8 +374,3 @@ pub trait AminoSigner {
         sign_doc: StdSignDoc,
     ) -> std::result::Result<AminoSignResponse, Self::Error>;
 }
-
-// enum Signer {
-//     Amino(Box<dyn AminoSigner + Send>),
-//     Direct(Box<dyn DirectSigner + Send>),
-// }

@@ -1,19 +1,15 @@
-use crate::wallet::{AminoSigner, DirectSigner, Signer};
-use crate::{Result, SecretNetworkClient};
+use crate::{wallet::Signer, Result, SecretNetworkClient};
 use secretrs::proto::cosmos::staking::v1beta1::{BondStatus, Validator};
-use tonic::codegen::{Body, Bytes, StdError};
-use tracing::debug;
+use tracing::{debug, info};
 
 impl<T, S> SecretNetworkClient<T, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    T::Error: Into<tonic::codegen::StdError>,
+    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
+    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub async fn all_validators(&self) -> Result<Vec<Validator>> {
         use secretrs::proto::cosmos::base::query::v1beta1::PageRequest;

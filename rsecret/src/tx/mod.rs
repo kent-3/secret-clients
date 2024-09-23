@@ -49,8 +49,6 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
@@ -69,8 +67,6 @@ where
 impl<S> TxSender<::tonic::transport::Channel, S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
 {
     pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
@@ -109,8 +105,8 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl TxSender<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
+impl<S> TxSender<::tonic_web_wasm_client::Client, S> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
         let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());
         let compute = ComputeServiceClient::new(client.clone(), options);
@@ -147,8 +143,6 @@ where
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
 {
     // TODO - figure out how to support multiple messages
     pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {
