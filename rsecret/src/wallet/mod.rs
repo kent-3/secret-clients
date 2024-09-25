@@ -6,8 +6,8 @@ use secretrs::tx::SignMode;
 pub(crate) mod wallet_amino;
 pub(crate) mod wallet_proto;
 
-pub use wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdSignDoc, WalletOptions};
-pub use wallet_proto::{DirectSignResponse, DirectSigner, SignDocVariant, Wallet};
+pub use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc, WalletOptions};
+pub use wallet_proto::{DirectSignResponse, SignDoc, Wallet};
 
 #[async_trait]
 pub trait Signer: std::fmt::Debug {
@@ -38,6 +38,6 @@ pub trait Signer: std::fmt::Debug {
     async fn sign_direct(
         &self,
         signer_address: &str,
-        sign_doc: SignDocVariant,
+        sign_doc: secretrs::tx::SignDoc,
     ) -> std::result::Result<DirectSignResponse, Self::Error>;
 }

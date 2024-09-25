@@ -34,7 +34,7 @@ pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
 use crate::secret_network_client::CreateTxSenderOptions;
-use crate::wallet::{AminoSigner, DirectSigner, Signer};
+use crate::wallet::Signer;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};

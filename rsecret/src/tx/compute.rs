@@ -1,12 +1,15 @@
 use super::{Error, Result};
 use crate::{
     query::auth::{AuthQuerier, BaseAccount, QueryAccountRequest},
-    secret_network_client::{CreateClientOptions, CreateTxSenderOptions, TxOptions, TxResponse},
+    secret_network_client::{
+        CreateClientOptions, CreateTxSenderOptions, SignerData, TxOptions, TxResponse,
+    },
     wallet::{
-        AminoSigner, DirectSignResponse, DirectSigner, SignDocVariant, Signer, Wallet,
-        WalletOptions,
+        wallet_amino::StdFee, AccountData, AminoSignResponse, DirectSignResponse, Signer,
+        StdSignDoc, Wallet, WalletOptions,
     },
 };
+use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
 use secretrs::{
@@ -23,13 +26,13 @@ use secretrs::{
             MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
         },
     },
-    tx::{Body, BodyBuilder, Fee, Msg, Raw, SignDoc, SignerInfo, Tx},
+    tx::{Body, BodyBuilder, Fee, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
     utils::encryption::{EncryptionUtils, SecretMsg},
-    Any, Coin,
+    AccountId, Any, Coin,
 };
 use serde::Serialize;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Debug)]
 pub struct ComputeServiceClient<T, S>
@@ -45,6 +48,8 @@ where
     auth: AuthQueryClient<T>,
     wallet: Arc<S>,
     wallet_address: Arc<str>,
+    // TODO: add this here and everywhere
+    chain_id: Arc<str>,
     encryption_utils: EncryptionUtils,
     code_hash_cache: HashMap<String, String>,
 }
@@ -245,6 +250,7 @@ where
 
         let wallet = options.wallet;
         let wallet_address = options.wallet_address;
+        let chain_id = options.chain_id.into();
         let encryption_utils = options.encryption_utils;
         let code_hash_cache = HashMap::new();
 
@@ -253,6 +259,7 @@ where
             auth,
             wallet,
             wallet_address,
+            chain_id,
             encryption_utils,
             code_hash_cache,
         }
@@ -296,7 +303,7 @@ where
         msg: MsgStoreCode,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
-        let tx_request = self.prepare_tx(msg, tx_options).await?;
+        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self
             .perform(tx_request)
             .await?
@@ -310,9 +317,10 @@ where
     pub async fn instantiate_contract(
         &self,
         msg: MsgInstantiateContract,
+        code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
-        let tx_request = self.prepare_tx(msg, tx_options).await?;
+        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self
             .perform(tx_request)
             .await?
@@ -326,9 +334,10 @@ where
     pub async fn execute_contract(
         &self,
         msg: MsgExecuteContract,
+        code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
-        let tx_request = self.prepare_tx(msg, tx_options).await?;
+        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self
             .perform(tx_request)
             .await?
@@ -349,20 +358,15 @@ where
         todo!()
     }
 
-    async fn prepare_tx<M: secretrs::tx::Msg>(
+    async fn prepare_and_sign<M: secretrs::tx::Msg>(
         &self,
-        msg: M,
+        messages: Vec<M>,
         tx_options: TxOptions,
     ) -> Result<BroadcastTxRequest> {
-        let request = BroadcastTxRequest {
-            tx_bytes: vec![],
-            mode: tx_options.broadcast_mode.into(),
-        };
-
         let accounts = self.wallet.get_accounts().await.unwrap();
         let account = accounts.first().expect("no accounts");
         let address = account.address.clone();
-        let public_key =
+        let public_key: PublicKey =
             secretrs::tendermint::PublicKey::from_raw_secp256k1(&account.pubkey.clone())
                 .expect("invalid raw secp256k1 key bytes")
                 .into();
@@ -373,27 +377,21 @@ where
         let (metadata, response, _) = response.into_parts();
 
         let http_headers = metadata.into_headers();
-        let block_height_header = http_headers
+        let block_height = http_headers
             .get("x-cosmos-block-height")
-            .expect("x-cosmos-block-height missing");
-
-        let block_height_str = block_height_header
-            .to_str()
-            .expect("Failed to convert header value to string");
-
-        let block_height =
-            u32::from_str(block_height_str).expect("Failed to parse block height into u32");
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header_str| u32::from_str(header_str).ok())
+            .expect("Failed to retrieve and parse block height");
 
         let account = response
             .account
             .and_then(|any| any.to_msg::<BaseAccount>().ok())
             .ok_or_else(|| Error::custom("No account found"))?;
 
-        // TODO: how to get chain ID here?
-        let chain_id = "secret-4".parse()?;
+        let chain_id = self.chain_id.to_string();
         let account_number = account.account_number;
         let sequence = account.sequence;
-        let memo = "";
+        let memo = tx_options.memo;
         let timeout_height = block_height + 10;
 
         let gas = tx_options.gas_limit;
@@ -404,52 +402,231 @@ where
             denom: "uscrt".parse()?,
         };
 
-        let tx_body = Body::new(vec![msg.to_any()?], memo, timeout_height);
-        let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
-        let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(gas_fee, gas));
-        let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id, account_number)?;
+        let fee = StdFee {
+            gas: gas.to_string(),
+            amount: vec![gas_fee],
+            granter: None,
+        };
 
-        // TODO: I do not like this SignDocVariant business...
-        let tx_signed = self.sign(SignDocVariant::SignDoc(sign_doc)).await?;
-        let tx_bytes = tx_signed.to_bytes()?;
+        let explicit_signer_data = tx_options.explicit_signer_data;
+
+        // let messages: Vec<Any> = messages
+        //     .iter()
+        //     .map(|msg| msg.to_any().map_err(Into::into))
+        //     .collect()?;
+        //
+        // let tx_body = Body::new(messages, memo, timeout_height);
+        // let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
+        // let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(gas_fee, gas));
+        // let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id.parse()?, account_number)?;
+
+        let tx_raw = self.sign(messages, fee, memo, explicit_signer_data).await?;
+        let tx_bytes = tx_raw.encode_to_vec();
 
         Ok(BroadcastTxRequest { tx_bytes, mode: 1 })
     }
 
-    // TODO: Is there any point in returning Raw instead of TxRaw?
-    // More generally, is there any reason to use the cosmrs types over the protobuf types?
-    async fn sign(&self, sign_doc: SignDocVariant) -> Result<Raw> {
-        let signer_address = self.wallet_address.as_ref();
+    /// Gets account number and sequence from the API, creates a sign doc,
+    /// creates a single signature and assembles the signed transaction.
+    ///
+    /// The sign mode (SIGN_MODE_DIRECT or SIGN_MODE_LEGACY_AMINO_JSON) is determined by this client's signer.
+    ///
+    /// You can pass signer data (account number, sequence and chain ID) explicitly instead of querying them
+    /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
+    async fn sign(
+        &self,
+        messages: Vec<impl secretrs::tx::Msg>,
+        fee: StdFee,
+        memo: String,
+        explicit_signer_data: Option<SignerData>,
+    ) -> Result<TxRaw> {
         let signer = self.wallet.as_ref();
+        let signer_address = self.wallet_address.as_ref();
 
-        // TODO: allow for Amino Sign here. Need to add a way to check if the signer is a
-        // DirectSigner, but oops, I've already introduced the Signer trait bound that is both...
-        // I should go back and unify the Signer traits, and impl Signer for AminoWallet
-        // differently from Wallet. And include a get_sign_mode() function.
-        let response: DirectSignResponse = signer
-            .sign_direct(signer_address, sign_doc)
+        let account_from_signer: AccountData = signer
+            .get_accounts()
             .await
-            .map_err(|err| crate::Error::custom(err))?;
+            .map_err(crate::Error::custom)
+            .and_then(|accounts| {
+                accounts
+                    .iter()
+                    .find(|account| account.address == signer_address)
+                    .cloned()
+                    .ok_or_else(|| crate::Error::custom("Failed to retrieve account from signer"))
+            })?;
 
-        let signed_sign_doc = response.signed;
-        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+        // TODO: match secret.js carefully. They do a lot more of the preparation inside of these
+        // sign methods instead of in the "prepare_tx" method.
 
-        let signed_tx_raw = match signed_sign_doc {
-            SignDocVariant::SignDoc(doc) => TxRaw {
-                body_bytes: doc.body_bytes,
-                auth_info_bytes: doc.auth_info_bytes,
-                signatures: vec![signature],
-            },
-            SignDocVariant::SignDocCamelCase(doc) => TxRaw {
-                body_bytes: doc.bodyBytes,
-                auth_info_bytes: doc.authInfoBytes,
-                signatures: vec![signature],
-            },
+        // signerData = {
+        //     accountNumber: Number(baseAccount.account_number),
+        //     sequence: Number(baseAccount.sequence),
+        //     chainId: this.chainId,
+        //   };
+
+        let request = QueryAccountRequest {
+            address: signer_address.to_string(),
+        };
+        let response = self.auth.clone().account(request).await?;
+
+        let (metadata, response, _) = response.into_parts();
+
+        let http_headers = metadata.into_headers();
+        let block_height = http_headers
+            .get("x-cosmos-block-height")
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header_str| u32::from_str(header_str).ok())
+            .ok_or(Error::custom("Failed to retrieve and parse block height"))?;
+
+        let account: BaseAccount = response
+            .account
+            .and_then(|any| any.to_msg::<BaseAccount>().ok())
+            .ok_or(Error::custom("No account found"))?;
+
+        let signer_data = SignerData {
+            account_number: account.account_number,
+            account_sequence: account.sequence,
+            chain_id: self.chain_id.to_string(),
         };
 
-        let signed_tx_raw: Raw = signed_tx_raw.into();
+        match signer.get_sign_mode().await.map_err(Error::custom)? {
+            SignMode::LegacyAminoJson => {
+                let signed_tx_raw: TxRaw = self
+                    .sign_amino(account_from_signer, messages, fee, memo, signer_data)
+                    .await?;
+
+                Ok(signed_tx_raw.into())
+            }
+            SignMode::Direct => {
+                let signed_tx_raw: TxRaw = self
+                    .sign_direct(account_from_signer, messages, fee, memo, signer_data)
+                    .await?;
+
+                Ok(signed_tx_raw.into())
+            }
+            _ => Err(crate::Error::custom("Unsupported SignMode")),
+        }
+    }
+
+    async fn sign_amino(
+        &self,
+        account: AccountData,
+        messages: Vec<impl secretrs::tx::Msg>,
+        fee: StdFee,
+        memo: String,
+        signer_data: SignerData,
+    ) -> Result<TxRaw> {
+        // TODO: avoid having to make this check all over the place?
+        let sign_mode = self
+            .wallet
+            .get_sign_mode()
+            .await
+            .map_err(crate::Error::custom)?;
+
+        let SignMode::LegacyAminoJson = sign_mode else {
+            return Err(crate::Error::custom(
+                "Wrong signer type! Expected AminoSigner or AminoEip191Signer.",
+            ));
+        };
+
+        // TODO:
+        // 1) convert the messages to Amino messages + encrypt them
+        // 2) create the SignDoc
+        // 3) do self.wallet.sign_amino
+        // 4) construct the tx_body, auth_info, etc using a mashup of the original messages, but
+        //    the returned signed SignDoc for things like gas and memo changes
+        // 5) turn all that into a TxRaw
+
+        // let msgs = messages.iter()
+
+        let sign_doc = todo!();
+
+        let response: AminoSignResponse = self
+            .wallet
+            .sign_amino(&account.address, sign_doc)
+            .await
+            .map_err(crate::Error::custom)?;
+
+        let signed: StdSignDoc = response.signed;
+        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+
+        // let signed_tx_raw = TxRaw {
+        //     body_bytes: signed.body_bytes,
+        //     auth_info_bytes: signed.auth_info_bytes,
+        //     signatures: vec![signature],
+        // };
+
+        // Ok(signed_tx_raw)
+
+        todo!()
+    }
+
+    async fn sign_direct(
+        &self,
+        account: AccountData,
+        messages: Vec<impl secretrs::tx::Msg>,
+        fee: StdFee,
+        memo: String,
+        signer_data: SignerData,
+    ) -> Result<TxRaw> {
+        // TODO: avoid having to make this check all over the place?
+        let sign_mode = self
+            .wallet
+            .get_sign_mode()
+            .await
+            .map_err(crate::Error::custom)?;
+
+        let SignMode::Direct = sign_mode else {
+            return Err(crate::Error::custom(
+                "Wrong signer type! Expected DirectSigner.",
+            ));
+        };
+
+        // let messages: Vec<Any> = messages
+        //     .iter()
+        //     .map(|msg| msg.to_any().map_err(Into::into))
+        //     .collect()?;
+        //
+        // let tx_body = Body::new(messages, memo, timeout_height);
+        // let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
+        // let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(gas_fee, gas));
+        // let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id.parse()?, account_number)?;
+
+        // TODO: create the SignDoc
+        let sign_doc = todo!();
+
+        let response: DirectSignResponse = self
+            .wallet
+            .sign_direct(&account.address, sign_doc)
+            .await
+            .map_err(crate::Error::custom)?;
+
+        let signed = response.signed;
+        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+
+        let signed_tx_raw = TxRaw {
+            body_bytes: signed.body_bytes,
+            auth_info_bytes: signed.auth_info_bytes,
+            signatures: vec![signature],
+        };
 
         Ok(signed_tx_raw)
+    }
+
+    // TODO: I need a way to distinguish which message types need to be encrypted. Although, I
+    // could just keep the 'compute' methods different from all the others... instead of giving
+    // EncryptionUtils to every toProto/toAmino method and ignoring it for every other module
+    // message type.
+
+    // TODO: I might want to introduce a new trait for "messages that get encrypted", with methods
+    // to_proto and to_amino, and each of those methods involves encrypting the inner message.
+
+    // TODO: this function queries for contract code hashes if they are missing, but I'd need to
+    // create new structs to represent the equivalents in secret.js.
+    // Actually, I might ignore this and just have separate functions for those 3 message types
+    // that need it...
+    async fn populate_code_hash<M: secretrs::tx::Msg>(&self, msg: M) {
+        todo!()
     }
 
     async fn perform(
@@ -457,5 +634,62 @@ where
         request: BroadcastTxRequest,
     ) -> ::tonic::Result<::tonic::Response<BroadcastTxResponse>, ::tonic::Status> {
         self.inner.clone().broadcast_tx(request).await
+    }
+}
+
+// I don't like this!
+
+#[derive(Debug, Clone)]
+/// MsgExecuteContract execute a contract handle function
+pub struct ExtendedMsgExecuteContract {
+    /// Sender is the that actor that signed the messages
+    pub sender: AccountId,
+
+    /// The contract instance to execute the message on
+    pub contract: AccountId,
+
+    /// The message to pass to the contract handle method
+    pub msg: Vec<u8>,
+
+    msg_encrypted: Option<Vec<u8>>,
+
+    /// Native amounts of coins to send with this message
+    pub sent_funds: Vec<Coin>,
+
+    pub code_hash: String,
+
+    warn_code_hash: bool,
+}
+
+use crate::secret_network_client::MsgExt;
+
+#[async_trait]
+impl MsgExt for ExtendedMsgExecuteContract {
+    async fn to_proto(&mut self, utils: EncryptionUtils) -> Result<MsgExecuteContract> {
+        if self.warn_code_hash {
+            warn!("Missing Code Hash")
+        }
+
+        if self.msg_encrypted.is_none() {
+            // The encryption uses a random nonce
+            // toProto() & toAmino() are called multiple times during signing
+            // so to keep the msg consistant across calls we encrypt the msg only once
+            let encrypted = utils.encrypt(&self.code_hash, &self.msg)?;
+            self.msg_encrypted = Some(encrypted.into_inner());
+        }
+
+        Ok(MsgExecuteContract {
+            sender: __self.sender.clone(),
+            contract: __self.contract.clone(),
+            msg: __self.msg_encrypted.clone().unwrap(),
+            sent_funds: __self.sent_funds.clone(),
+        })
+    }
+
+    async fn to_amino(
+        &mut self,
+        utils: EncryptionUtils,
+    ) -> Result<crate::secret_network_client::AminoMsg> {
+        todo!()
     }
 }

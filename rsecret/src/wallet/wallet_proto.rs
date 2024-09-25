@@ -1,16 +1,16 @@
 use super::{
     wallet_amino::{
         encode_secp256k1_signature, serialize_std_sign_doc, AccountData, Algo, AminoSignResponse,
-        AminoSigner, AminoWallet, StdSignDoc, StdSignature,
+        AminoWallet, StdSignDoc, StdSignature,
     },
     Signer,
 };
-use crate::{secret_network_client::SignDocCamelCase, Error::InvalidSigner, Result};
+use crate::{Error::InvalidSigner, Result};
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
     crypto::{secp256k1::SigningKey, PublicKey},
-    tx::{SignDoc, SignMode},
+    tx::SignMode,
     Coin,
 };
 use serde::{Deserialize, Serialize};
@@ -37,28 +37,75 @@ impl Wallet {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SignDocVariant {
-    SignDoc(SignDoc),
-    SignDocCamelCase(SignDocCamelCase),
+/// Local SignDoc type to be able to serialize to JavaScript. We lose the methods into_proto() and
+/// into_bytes(), but are able to use serde_wasm_bindgen::{to_value, from_value}.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SignDoc {
+    pub body_bytes: Vec<u8>,
+    pub auth_info_bytes: Vec<u8>,
+    pub chain_id: String,
+    pub account_number: u64,
 }
 
-// Alternate approach:
-// impl SignDocVariant {
-//     pub fn into_bytes(self) -> Result<Vec<u8>> {
-//         match self {
-//             SignDocVariant::SignDoc(doc) => Ok(doc.into_bytes()?),
-//             SignDocVariant::SignDocCamelCase(doc) => Ok(doc.into_bytes()?),
-//         }
-//     }
-// }
+impl std::fmt::Debug for SignDoc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignDoc")
+            .field("body_bytes", &BASE64_STANDARD.encode(&self.body_bytes))
+            .field(
+                "auth_info_bytes",
+                &BASE64_STANDARD.encode(&self.auth_info_bytes),
+            )
+            .field("chain_id", &self.chain_id)
+            .field("account_number", &self.account_number)
+            .finish()
+    }
+}
+
+impl From<secretrs::tx::SignDoc> for SignDoc {
+    fn from(sign_doc: secretrs::tx::SignDoc) -> Self {
+        Self {
+            body_bytes: sign_doc.body_bytes,
+            auth_info_bytes: sign_doc.auth_info_bytes,
+            chain_id: sign_doc.chain_id,
+            account_number: sign_doc.account_number,
+        }
+    }
+}
+
+impl From<SignDoc> for secretrs::tx::SignDoc {
+    fn from(sign_doc: SignDoc) -> Self {
+        Self {
+            body_bytes: sign_doc.body_bytes,
+            auth_info_bytes: sign_doc.auth_info_bytes,
+            chain_id: sign_doc.chain_id,
+            account_number: sign_doc.account_number,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedSignDoc {
+    pub body_bytes: Vec<u8>,
+    pub auth_info_bytes: Vec<u8>,
+    pub chain_id: String,
+    pub account_number: AccountNumber,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AccountNumber {
+    pub low: u32,
+    pub high: u32,
+    pub unsigned: bool,
+}
 
 /// Response type for direct signing operations.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectSignResponse {
     /// The sign doc that was signed.
     /// This may be different from the input SignDoc when the signer modifies it as part of the signing process.
-    pub signed: SignDocVariant,
+    pub signed: SignedSignDoc,
     pub signature: StdSignature,
 }
 
@@ -114,7 +161,7 @@ impl Signer for Wallet {
     async fn sign_direct(
         &self,
         signer_address: &str,
-        sign_doc: SignDocVariant,
+        sign_doc: secretrs::tx::SignDoc,
     ) -> Result<DirectSignResponse> {
         if signer_address != self.0.address {
             return Err(InvalidSigner {
@@ -122,40 +169,27 @@ impl Signer for Wallet {
             });
         }
 
-        let message_hash = Sha256::digest(serialize_sign_doc(sign_doc.clone())?);
+        let message_hash = Sha256::digest(sign_doc.clone().into_bytes()?);
 
         let signature = self.0.private_key.sign(&message_hash)?;
 
+        let signed = SignedSignDoc {
+            body_bytes: sign_doc.body_bytes,
+            auth_info_bytes: sign_doc.auth_info_bytes,
+            chain_id: sign_doc.chain_id,
+            account_number: AccountNumber {
+                low: sign_doc.account_number as u32,
+                high: 0,
+                unsigned: false,
+            },
+        };
+
         Ok(DirectSignResponse {
-            signed: sign_doc,
+            signed,
             signature: encode_secp256k1_signature(
                 &self.0.public_key.to_bytes(),
                 &signature.to_bytes(),
             )?,
         })
     }
-}
-
-#[inline]
-fn serialize_sign_doc(sign_doc: SignDocVariant) -> Result<Vec<u8>> {
-    // sign_doc.into_bytes()
-    match sign_doc {
-        SignDocVariant::SignDoc(sign_doc) => Ok(sign_doc.into_bytes()?),
-        SignDocVariant::SignDocCamelCase(sign_doc) => Ok(sign_doc.into_bytes()?),
-    }
-}
-
-#[async_trait]
-pub trait DirectSigner: AminoSigner {
-    type Error: Into<crate::Error>;
-
-    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
-    ///
-    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
-    /// return the doc that was signed in the response.
-    async fn sign_direct(
-        &self,
-        signer_address: &str,
-        sign_doc: SignDocVariant,
-    ) -> std::result::Result<DirectSignResponse, <Self as DirectSigner>::Error>;
 }

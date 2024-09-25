@@ -5,10 +5,9 @@ use crate::{
     tx::TxSender,
     wallet::{
         wallet_amino::{
-            AccountData, AminoSignResponse, AminoSigner, AminoWallet, StdFee, StdSignDoc,
-            WalletOptions,
+            AccountData, AminoSignResponse, AminoWallet, StdFee, StdSignDoc, WalletOptions,
         },
-        wallet_proto::{DirectSigner, Wallet},
+        wallet_proto::Wallet,
         Signer,
     },
     Error, Result,
@@ -205,13 +204,13 @@ impl Default for TxOptions {
 /// Signer data for overriding chain-specific data
 #[derive(Debug, Clone)]
 pub struct SignerData {
-    pub account_number: u32,
-    pub account_sequence: u32,
+    pub account_number: u64,
+    pub account_sequence: u64,
     pub chain_id: String,
 }
 
 #[async_trait]
-pub trait ReadonlySigner: AminoSigner {
+pub trait ReadonlySigner: Signer {
     async fn get_accounts() -> Result<Vec<AccountData>> {
         Err("get_accounts() is not supported in readonly mode.".into())
     }
@@ -1110,66 +1109,35 @@ where
 {
 }
 
-// TODO: we need some generic 'Msg' type to be used in all these methods.
-// I think one exists in cosmrs... but that probably won't have a to_amino method
-//
-// pub struct ProtoMsg {
-//     type_url: String,
-//     // value is used in x/compute
-//     value: Vec<u8>,
-// }
-//
-// pub trait ProtoMsg {
-//     async fn encode(&self) -> Result<Vec<u8>>;
-// }
-//
-// pub struct AminoMsg {
-//     r#type: String,
-//     value: Vec<u8>,
-// }
-//
-// pub trait Msg {
-//     fn to_proto(utils: EncryptionUtils) -> Result<ProtoMsg>;
-//     fn to_amino(utils: EncryptionUtils) -> Result<AminoMsg>;
-// }
+// I don't like this!
 
-// TODO: this seems silly... I can probably use serde to rename to camelCase when working in
-// javascript land.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(non_snake_case)]
-pub struct SignDocCamelCase {
-    /// `bodyBytes` is protobuf serialization of a TxBody that matches the
-    /// representation in TxRaw.
-    pub bodyBytes: Vec<u8>,
-
-    /// `authInfoBytes` is a protobuf serialization of an AuthInfo that matches the
-    /// representation in TxRaw.
-    pub authInfoBytes: Vec<u8>,
-
-    /// `chainId` is the unique identifier of the chain this transaction targets.
-    /// It prevents signed transactions from being used on another chain by an
-    /// attacker.
-    pub chainId: String,
-
-    /// `accountNumber` is the account number of the account in state.
-    pub accountNumber: u64,
+#[serde(rename = "camelCase")]
+pub struct ProtoMsg {
+    type_url: String,
+    // value is used in x/compute
+    value: Vec<u8>,
 }
 
-impl SignDocCamelCase {
-    pub fn into_bytes(self) -> Result<Vec<u8>> {
-        Ok(SignDoc::from(self).into_bytes()?)
+impl ProtoMsg {
+    async fn encode(&self) -> Result<Vec<u8>> {
+        todo!()
     }
 }
 
-impl From<SignDocCamelCase> for SignDoc {
-    fn from(doc: SignDocCamelCase) -> Self {
-        SignDoc {
-            body_bytes: doc.bodyBytes,
-            auth_info_bytes: doc.authInfoBytes,
-            chain_id: doc.chainId,
-            account_number: doc.accountNumber,
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AminoMsg {
+    r#type: String,
+    value: Vec<u8>,
+}
+
+#[async_trait]
+pub trait MsgExt {
+    async fn to_proto(
+        &mut self,
+        utils: EncryptionUtils,
+    ) -> Result<secretrs::compute::MsgExecuteContract>;
+    async fn to_amino(&mut self, utils: EncryptionUtils) -> Result<AminoMsg>;
 }
 
 #[repr(u32)]

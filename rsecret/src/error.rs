@@ -1,3 +1,5 @@
+use crate::wallet::Signer;
+
 /// Alias for a `Result` with the error type `crate::Error`.
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -10,6 +12,9 @@ pub enum Error {
     SimpleError,
     #[error("{self:?}")]
     ErrorWithData { data: String },
+
+    #[error("{0}")]
+    SignerError(String),
 
     #[error("{self:?}")]
     MissingField { name: &'static str },
