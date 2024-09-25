@@ -37,7 +37,7 @@ impl Wallet {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SignDocVariant {
     SignDoc(SignDoc),
     SignDocCamelCase(SignDocCamelCase),
@@ -54,7 +54,7 @@ pub enum SignDocVariant {
 // }
 
 /// Response type for direct signing operations.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DirectSignResponse {
     /// The sign doc that was signed.
     /// This may be different from the input SignDoc when the signer modifies it as part of the signing process.

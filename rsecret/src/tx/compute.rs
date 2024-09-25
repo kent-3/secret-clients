@@ -260,7 +260,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<S> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
+impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
     pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
         let inner = TxServiceClient::new(client.clone());
         let auth = AuthQueryClient::new(client);
@@ -328,7 +328,15 @@ where
         msg: MsgExecuteContract,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
-        todo!()
+        let tx_request = self.prepare_tx(msg, tx_options).await?;
+        let tx_response = self
+            .perform(tx_request)
+            .await?
+            .into_inner()
+            .tx_response
+            .ok_or("no response")?;
+
+        Ok(tx_response)
     }
 
     pub async fn migrate_contract() {
@@ -382,7 +390,7 @@ where
             .ok_or_else(|| Error::custom("No account found"))?;
 
         // TODO: how to get chain ID here?
-        let chain_id = "secretdev-1".parse()?;
+        let chain_id = "secret-4".parse()?;
         let account_number = account.account_number;
         let sequence = account.sequence;
         let memo = "";

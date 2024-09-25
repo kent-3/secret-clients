@@ -325,7 +325,6 @@ where
     pub url: String,
     pub query: Querier<T>,
     pub tx: TxSender<T, S>,
-    // pub wallet: Arc<dyn Signer<Error = crate::Error>>,
     pub wallet: Arc<S>,
     pub address: String,
     pub chain_id: String,
@@ -450,15 +449,17 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
     // }
 }
 #[cfg(target_arch = "wasm32")]
-impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
+impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
-        options: CreateClientOptions,
+        options: CreateClientOptions<S>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
-        let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
-            Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
-        }));
+        // let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
+        //     Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
+        // }));
+
+        let wallet = options.wallet.expect("Wallet should be provided");
 
         // if no EncryptionUtils is provided, one is created
         let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
@@ -1132,25 +1133,9 @@ where
 //     fn to_amino(utils: EncryptionUtils) -> Result<AminoMsg>;
 // }
 
-// TODO: work out traits related to signing
-//
-// /// A signer capable of signing transactions.
-// pub trait Signer {
-//     // Define methods relevant to the Signer trait here
-//     fn sign();
-// }
-//
-// pub trait DirectSigner: Signer {
-//     fn sign_direct();
-// }
-//
-// impl Signer for Wallet {
-//     fn sign() {
-//         todo!()
-//     }
-// }
-
-#[derive(Debug, Clone)]
+// TODO: this seems silly... I can probably use serde to rename to camelCase when working in
+// javascript land.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct SignDocCamelCase {
     /// `bodyBytes` is protobuf serialization of a TxBody that matches the
@@ -1167,25 +1152,23 @@ pub struct SignDocCamelCase {
     pub chainId: String,
 
     /// `accountNumber` is the account number of the account in state.
-    pub accountNumber: String,
+    pub accountNumber: u64,
 }
 
 impl SignDocCamelCase {
     pub fn into_bytes(self) -> Result<Vec<u8>> {
-        Ok(SignDoc::try_from(self)?.into_bytes()?)
+        Ok(SignDoc::from(self).into_bytes()?)
     }
 }
 
-impl TryFrom<SignDocCamelCase> for SignDoc {
-    type Error = crate::Error;
-
-    fn try_from(doc: SignDocCamelCase) -> Result<Self> {
-        Ok(SignDoc {
+impl From<SignDocCamelCase> for SignDoc {
+    fn from(doc: SignDocCamelCase) -> Self {
+        SignDoc {
             body_bytes: doc.bodyBytes,
             auth_info_bytes: doc.authInfoBytes,
             chain_id: doc.chainId,
-            account_number: doc.accountNumber.parse()?,
-        })
+            account_number: doc.accountNumber,
+        }
     }
 }
 

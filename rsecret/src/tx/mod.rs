@@ -64,10 +64,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S> TxSender<::tonic::transport::Channel, S>
-where
-    S: Signer,
-{
+impl<S: Signer> TxSender<::tonic::transport::Channel, S> {
     pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -105,7 +102,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<S> TxSender<::tonic_web_wasm_client::Client, S> {
+impl<S: Signer> TxSender<::tonic_web_wasm_client::Client, S> {
     pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
         let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());

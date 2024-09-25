@@ -296,6 +296,7 @@ pub struct Pubkey {
 /// Algorithm types used for signing.
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Algo {
     Secp256k1,
     Ed25519,
