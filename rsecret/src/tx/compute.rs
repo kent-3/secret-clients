@@ -5,8 +5,8 @@ use crate::{
         CreateClientOptions, CreateTxSenderOptions, SignerData, TxOptions, TxResponse,
     },
     wallet::{
-        wallet_amino::StdFee, AccountData, AminoSignResponse, DirectSignResponse, Signer,
-        StdSignDoc, Wallet, WalletOptions,
+        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc, ToAmino},
+        AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
     },
 };
 use async_trait::async_trait;
@@ -274,6 +274,7 @@ impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
 
         let wallet = options.wallet;
         let wallet_address = options.wallet_address;
+        let chain_id = options.chain_id.into();
         let encryption_utils = options.encryption_utils;
         let code_hash_cache = HashMap::new();
 
@@ -282,6 +283,7 @@ impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
             auth,
             wallet,
             wallet_address,
+            chain_id,
             encryption_utils,
             code_hash_cache,
         }
@@ -511,7 +513,9 @@ where
     async fn sign_amino(
         &self,
         account: AccountData,
-        messages: Vec<impl secretrs::tx::Msg>,
+        // TODO: this will get annoying fast, if we have to put this bound everywhere.
+        // It would be better to have a single unifying trait we could use...
+        messages: Vec<impl secretrs::tx::Msg + ToAmino>,
         fee: StdFee,
         memo: String,
         signer_data: SignerData,
@@ -537,7 +541,12 @@ where
         //    the returned signed SignDoc for things like gas and memo changes
         // 5) turn all that into a TxRaw
 
-        // let msgs = messages.iter()
+        let amino_msgs: Vec<AminoMsg> = messages
+            .iter()
+            .map(|msg| msg.to_amino(self.encryption_utils.clone()))
+            .collect();
+        let serialized = serde_json::to_string(&amino_msgs).unwrap();
+        debug!("Serialized AminoMsg: {}", serialized);
 
         let sign_doc = todo!();
 
@@ -634,62 +643,5 @@ where
         request: BroadcastTxRequest,
     ) -> ::tonic::Result<::tonic::Response<BroadcastTxResponse>, ::tonic::Status> {
         self.inner.clone().broadcast_tx(request).await
-    }
-}
-
-// I don't like this!
-
-#[derive(Debug, Clone)]
-/// MsgExecuteContract execute a contract handle function
-pub struct ExtendedMsgExecuteContract {
-    /// Sender is the that actor that signed the messages
-    pub sender: AccountId,
-
-    /// The contract instance to execute the message on
-    pub contract: AccountId,
-
-    /// The message to pass to the contract handle method
-    pub msg: Vec<u8>,
-
-    msg_encrypted: Option<Vec<u8>>,
-
-    /// Native amounts of coins to send with this message
-    pub sent_funds: Vec<Coin>,
-
-    pub code_hash: String,
-
-    warn_code_hash: bool,
-}
-
-use crate::secret_network_client::MsgExt;
-
-#[async_trait]
-impl MsgExt for ExtendedMsgExecuteContract {
-    async fn to_proto(&mut self, utils: EncryptionUtils) -> Result<MsgExecuteContract> {
-        if self.warn_code_hash {
-            warn!("Missing Code Hash")
-        }
-
-        if self.msg_encrypted.is_none() {
-            // The encryption uses a random nonce
-            // toProto() & toAmino() are called multiple times during signing
-            // so to keep the msg consistant across calls we encrypt the msg only once
-            let encrypted = utils.encrypt(&self.code_hash, &self.msg)?;
-            self.msg_encrypted = Some(encrypted.into_inner());
-        }
-
-        Ok(MsgExecuteContract {
-            sender: __self.sender.clone(),
-            contract: __self.contract.clone(),
-            msg: __self.msg_encrypted.clone().unwrap(),
-            sent_funds: __self.sent_funds.clone(),
-        })
-    }
-
-    async fn to_amino(
-        &mut self,
-        utils: EncryptionUtils,
-    ) -> Result<crate::secret_network_client::AminoMsg> {
-        todo!()
     }
 }

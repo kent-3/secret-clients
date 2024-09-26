@@ -1109,37 +1109,6 @@ where
 {
 }
 
-// I don't like this!
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
-pub struct ProtoMsg {
-    type_url: String,
-    // value is used in x/compute
-    value: Vec<u8>,
-}
-
-impl ProtoMsg {
-    async fn encode(&self) -> Result<Vec<u8>> {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AminoMsg {
-    r#type: String,
-    value: Vec<u8>,
-}
-
-#[async_trait]
-pub trait MsgExt {
-    async fn to_proto(
-        &mut self,
-        utils: EncryptionUtils,
-    ) -> Result<secretrs::compute::MsgExecuteContract>;
-    async fn to_amino(&mut self, utils: EncryptionUtils) -> Result<AminoMsg>;
-}
-
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxResultCode {

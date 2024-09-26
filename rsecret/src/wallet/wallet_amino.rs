@@ -8,7 +8,7 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
     crypto::{secp256k1::SigningKey, PublicKey},
     tx::{SignDoc, SignMode},
-    Coin,
+    Coin, EncryptionUtils,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -222,10 +222,30 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
 }
 
 /// An Amino encoded message.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AminoMsg {
     pub r#type: String,
-    pub value: Vec<u8>,
+    pub value: serde_json::Value,
+}
+
+pub trait ToAmino {
+    fn to_amino(&self, utils: EncryptionUtils) -> AminoMsg;
+}
+
+// NOTE: the "msg" used here needs to be the encrypted message. We can get away with this by
+// encrypting and mutating the msg field in place before encoding.
+impl ToAmino for secretrs::compute::MsgExecuteContract {
+    fn to_amino(&self, utils: EncryptionUtils) -> AminoMsg {
+        AminoMsg {
+            r#type: "wasm/MsgExecuteContract".to_string(),
+            value: serde_json::json!({
+                "sender": self.sender.to_string(),
+                "contract": self.contract.to_string(),
+                "msg": BASE64_STANDARD.encode(&self.msg),
+                "sent_funds": self.sent_funds
+            }),
+        }
+    }
 }
 
 /// Response after signing with Amino.
