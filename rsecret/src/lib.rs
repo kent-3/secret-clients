@@ -14,6 +14,7 @@ pub mod account;
 mod error;
 pub mod query;
 pub mod secret_network_client;
+pub mod traits;
 pub mod wallet;
 
 mod bonus;

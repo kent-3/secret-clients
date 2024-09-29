@@ -1,7 +1,7 @@
 use crate::wallet::Signer;
 
 /// Alias for a `Result` with the error type `crate::Error`.
-pub type Result<T> = core::result::Result<T, Error>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// This type represents all possible errors that can occur in this crate.
 #[derive(Debug, thiserror::Error)]
@@ -13,16 +13,16 @@ pub enum Error {
     #[error("{self:?}")]
     ErrorWithData { data: String },
 
-    #[error("{0}")]
-    SignerError(String),
-
+    // #[error("{0}")]
+    // SignerError(String),
     #[error("{self:?}")]
     MissingField { name: &'static str },
     #[error("{self:?}")]
     InvalidAny { type_url: String },
-    #[error("Address {signer_address} not found in wallet")]
-    InvalidSigner { signer_address: String },
-
+    #[error(transparent)]
+    SignerError(#[from] crate::wallet::Error),
+    // #[error("Address {signer_address} not found in wallet")]
+    // InvalidSigner { signer_address: String },
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Tonic(#[from] tonic::transport::Error),

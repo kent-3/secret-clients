@@ -1,8 +1,6 @@
-use crate::{
-    wallet::{DirectSignResponse, Signer},
-    Error::InvalidSigner,
-    Result,
-};
+use super::Error;
+use crate::wallet::{DirectSignResponse, Signer};
+pub type Result<T, E = super::Error> = core::result::Result<T, E>;
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -137,10 +135,8 @@ impl AminoWallet {
 
 #[async_trait]
 impl Signer for AminoWallet {
-    type Error = crate::Error;
-
     /// Get the accounts associated with this wallet.
-    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
+    async fn get_accounts(&self) -> Result<Vec<AccountData>, super::Error> {
         Ok(vec![AccountData {
             address: self.address.clone(),
             algo: Algo::Secp256k1,
@@ -148,7 +144,7 @@ impl Signer for AminoWallet {
         }])
     }
 
-    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, super::Error> {
         Ok(SignMode::LegacyAminoJson)
     }
 
@@ -157,9 +153,9 @@ impl Signer for AminoWallet {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+    ) -> Result<AminoSignResponse, super::Error> {
         if signer_address != self.address {
-            return Err(InvalidSigner {
+            return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
             });
         }
@@ -181,7 +177,7 @@ impl Signer for AminoWallet {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+    ) -> Result<AminoSignResponse, super::Error> {
         todo!()
     }
 
@@ -189,15 +185,20 @@ impl Signer for AminoWallet {
         &self,
         signer_address: &str,
         sign_doc: SignDoc,
-    ) -> std::result::Result<DirectSignResponse, Self::Error> {
+    ) -> std::result::Result<DirectSignResponse, super::Error> {
         unimplemented!("This is an Amino Wallet")
     }
 }
 
 /// Encodes a secp256k1 signature object.
-pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Result<StdSignature> {
+pub(crate) fn encode_secp256k1_signature(
+    pubkey: &[u8],
+    signature: &[u8],
+) -> Result<StdSignature, super::Error> {
     if signature.len() != 64 {
-        return Err("Signature must be 64 bytes long".into());
+        return Err(Error::SignatureError(
+            "Signature must be 64 bytes long".into(),
+        ));
     }
 
     Ok(StdSignature {
@@ -207,7 +208,7 @@ pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Res
 }
 
 /// Encodes a secp256k1 public key.
-fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
+fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey, super::Error> {
     if pubkey.len() != 33 || (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
         return Err(
             "Public key must be compressed secp256k1, i.e. 33 bytes starting with 0x02 or 0x03"
@@ -226,26 +227,6 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
 pub struct AminoMsg {
     pub r#type: String,
     pub value: serde_json::Value,
-}
-
-pub trait ToAmino {
-    fn to_amino(&self, utils: EncryptionUtils) -> AminoMsg;
-}
-
-// NOTE: the "msg" used here needs to be the encrypted message. We can get away with this by
-// encrypting and mutating the msg field in place before encoding.
-impl ToAmino for secretrs::compute::MsgExecuteContract {
-    fn to_amino(&self, utils: EncryptionUtils) -> AminoMsg {
-        AminoMsg {
-            r#type: "wasm/MsgExecuteContract".to_string(),
-            value: serde_json::json!({
-                "sender": self.sender.to_string(),
-                "contract": self.contract.to_string(),
-                "msg": BASE64_STANDARD.encode(&self.msg),
-                "sent_funds": self.sent_funds
-            }),
-        }
-    }
 }
 
 /// Response after signing with Amino.

@@ -5,7 +5,7 @@ use crate::{
         CreateClientOptions, CreateTxSenderOptions, SignerData, TxOptions, TxResponse,
     },
     wallet::{
-        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc, ToAmino},
+        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc},
         AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
     },
 };
@@ -30,7 +30,7 @@ use secretrs::{
     utils::encryption::{EncryptionUtils, SecretMsg},
     AccountId, Any, Coin,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tracing::{debug, info, warn};
 
@@ -360,7 +360,7 @@ where
         todo!()
     }
 
-    async fn prepare_and_sign<M: secretrs::tx::Msg>(
+    async fn prepare_and_sign<M: Msg + crate::traits::Msg>(
         &self,
         messages: Vec<M>,
         tx_options: TxOptions,
@@ -437,7 +437,7 @@ where
     /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
     async fn sign(
         &self,
-        messages: Vec<impl secretrs::tx::Msg>,
+        messages: Vec<impl Msg + crate::traits::Msg>,
         fee: StdFee,
         memo: String,
         explicit_signer_data: Option<SignerData>,
@@ -515,7 +515,7 @@ where
         account: AccountData,
         // TODO: this will get annoying fast, if we have to put this bound everywhere.
         // It would be better to have a single unifying trait we could use...
-        messages: Vec<impl secretrs::tx::Msg + ToAmino>,
+        messages: Vec<impl Msg + crate::traits::Msg>,
         fee: StdFee,
         memo: String,
         signer_data: SignerData,
@@ -541,10 +541,8 @@ where
         //    the returned signed SignDoc for things like gas and memo changes
         // 5) turn all that into a TxRaw
 
-        let amino_msgs: Vec<AminoMsg> = messages
-            .iter()
-            .map(|msg| msg.to_amino(self.encryption_utils.clone()))
-            .collect();
+        let amino_msgs: Vec<AminoMsg> = messages.iter().map(|msg| msg.to_amino()).collect();
+
         let serialized = serde_json::to_string(&amino_msgs).unwrap();
         debug!("Serialized AminoMsg: {}", serialized);
 
@@ -573,7 +571,7 @@ where
     async fn sign_direct(
         &self,
         account: AccountData,
-        messages: Vec<impl secretrs::tx::Msg>,
+        messages: Vec<impl Msg>,
         fee: StdFee,
         memo: String,
         signer_data: SignerData,
@@ -634,7 +632,7 @@ where
     // create new structs to represent the equivalents in secret.js.
     // Actually, I might ignore this and just have separate functions for those 3 message types
     // that need it...
-    async fn populate_code_hash<M: secretrs::tx::Msg>(&self, msg: M) {
+    async fn populate_code_hash<M: Msg>(&self, msg: M) {
         todo!()
     }
 
@@ -645,3 +643,79 @@ where
         self.inner.clone().broadcast_tx(request).await
     }
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgInstantiateContractParams {
+    /// The actor that signed the messages
+    pub sender: String,
+    /// The id of the contract's WASM code
+    pub code_id: CodeId,
+    /// A unique label across all contracts
+    pub label: String,
+    /// The input message to the contract's constructor
+    pub init_msg: serde_json::Value,
+    /// Funds to send to the contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub init_funds: Option<Vec<Coin>>,
+    /// The SHA256 hash value of the contract's WASM bytecode
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_hash: Option<String>,
+    /// Admin is an optional address that can execute migrations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin: Option<String>,
+}
+
+// This enum can handle both `number` and `string` for `code_id`
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum CodeId {
+    Number(u64),
+    String(String),
+}
+
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct MsgInstantiateContract {
+//     pub sender: String,
+//     pub code_id: String,
+//     pub label: String,
+//     pub init_msg: serde_json::Value, // object in TypeScript can be serde_json::Value in Rust
+//     pub init_funds: Vec<Coin>,
+//     pub code_hash: String,
+//     pub admin: Option<String>, // Optional field
+//
+//     // Fields that are not public
+//     init_msg_encrypted: Option<Vec<u8>>, // Uint8Array in TypeScript is Vec<u8> in Rust
+//     warn_code_hash: bool,
+// }
+//
+// // Implementing functions (similar to the constructor and methods in the TypeScript class)
+// impl MsgInstantiateContract {
+//     // Constructor method
+//     pub fn new(params: MsgInstantiateContractParams) -> Self {
+//         MsgInstantiateContract {
+//             sender: params.sender,
+//             code_id: match params.code_id {
+//                 CodeId::Number(n) => n.to_string(), // Handle number or string for code_id
+//                 CodeId::String(s) => s,
+//             },
+//             label: params.label,
+//             init_msg: params.init_msg,
+//             init_funds: params.init_funds.unwrap_or_default(), // Default to an empty vector
+//             code_hash: params.code_hash.unwrap_or_default(),
+//             admin: params.admin,
+//
+//             // Private fields
+//             init_msg_encrypted: None,
+//             warn_code_hash: false, // Default value in TypeScript
+//         }
+//     }
+//
+//     // You can add other methods as needed to match the class functionality
+//     pub fn set_warn_code_hash(&mut self, value: bool) {
+//         self.warn_code_hash = value;
+//     }
+//
+//     pub fn encrypt_init_msg(&mut self, encrypted_msg: Vec<u8>) {
+//         self.init_msg_encrypted = Some(encrypted_msg);
+//     }
+// }

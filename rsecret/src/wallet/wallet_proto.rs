@@ -3,9 +3,11 @@ use super::{
         encode_secp256k1_signature, serialize_std_sign_doc, AccountData, Algo, AminoSignResponse,
         AminoWallet, StdSignDoc, StdSignature,
     },
-    Signer,
+    Error, Signer,
 };
-use crate::{Error::InvalidSigner, Result};
+
+pub type Result<T, E = super::Error> = core::result::Result<T, E>;
+
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -111,9 +113,9 @@ pub struct DirectSignResponse {
 
 #[async_trait]
 impl Signer for Wallet {
-    type Error = crate::Error;
+    // type Error = crate::Error;
 
-    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
+    async fn get_accounts(&self) -> Result<Vec<AccountData>, super::Error> {
         Ok(vec![AccountData {
             address: self.0.address.clone(),
             algo: Algo::Secp256k1,
@@ -121,7 +123,7 @@ impl Signer for Wallet {
         }])
     }
 
-    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, super::Error> {
         Ok(SignMode::Direct)
     }
 
@@ -130,9 +132,9 @@ impl Signer for Wallet {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+    ) -> Result<AminoSignResponse, super::Error> {
         if signer_address != self.0.address {
-            return Err(InvalidSigner {
+            return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
             });
         }
@@ -154,7 +156,7 @@ impl Signer for Wallet {
         &self,
         signer_address: &str,
         sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+    ) -> Result<AminoSignResponse, super::Error> {
         todo!()
     }
 
@@ -162,9 +164,9 @@ impl Signer for Wallet {
         &self,
         signer_address: &str,
         sign_doc: secretrs::tx::SignDoc,
-    ) -> Result<DirectSignResponse> {
+    ) -> Result<DirectSignResponse, super::Error> {
         if signer_address != self.0.address {
-            return Err(InvalidSigner {
+            return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
             });
         }
