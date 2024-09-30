@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{fmt, str::FromStr};
 
 const SECRET_COIN_TYPE: u16 = 529;
-const SECRET_BECH32_PREFIX: &'static str = "secret";
+const SECRET_BECH32_PREFIX: &str = "secret";
 
 /// Available options when creating a Wallet.
 #[derive(Debug)]

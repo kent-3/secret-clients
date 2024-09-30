@@ -4,6 +4,7 @@ use crate::{
     secret_network_client::{
         CreateClientOptions, CreateTxSenderOptions, SignerData, TxOptions, TxResponse,
     },
+    traits::{is_plaintext, ToAmino},
     wallet::{
         wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc},
         AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
@@ -26,22 +27,26 @@ use secretrs::{
             MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
         },
     },
-    tx::{Body, BodyBuilder, Fee, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
+    tx::{Body as TxBody, BodyBuilder, Fee, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
     utils::encryption::{EncryptionUtils, SecretMsg},
     AccountId, Any, Coin,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, info, warn};
 
 #[derive(Debug)]
 pub struct ComputeServiceClient<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-    T: Clone,
+    T: GrpcService<BoxBody> + Clone,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     S: Signer,
 {
     inner: TxServiceClient<T>,
@@ -60,13 +65,13 @@ where
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 use crate::secret_network_client::Enigma;
+
 impl<T, S> Enigma for ComputeServiceClient<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-    T: Clone,
+    T: GrpcService<BoxBody> + Clone,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     S: Signer,
 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
@@ -292,11 +297,10 @@ impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
 
 impl<T, S> ComputeServiceClient<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-    T: Clone,
+    T: GrpcService<BoxBody> + Clone,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     S: Signer,
 {
     // TODO: I think all the input and output message types should be the proto versions?
@@ -322,6 +326,8 @@ where
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
+        is_plaintext(&msg.init_msg)?;
+
         let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self
             .perform(tx_request)
@@ -339,6 +345,8 @@ where
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
+        is_plaintext(&msg.msg)?;
+
         let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self
             .perform(tx_request)
@@ -350,7 +358,14 @@ where
         Ok(tx_response)
     }
 
-    pub async fn migrate_contract() {
+    pub async fn migrate_contract(
+        &self,
+        msg: MsgExecuteContract,
+        code_hash: impl Into<String>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponseProto> {
+        is_plaintext(&msg.msg)?;
+
         todo!()
     }
     pub async fn update_admin() {
@@ -360,7 +375,7 @@ where
         todo!()
     }
 
-    async fn prepare_and_sign<M: Msg + crate::traits::Msg>(
+    async fn prepare_and_sign<M: Msg + ToAmino>(
         &self,
         messages: Vec<M>,
         tx_options: TxOptions,
@@ -437,7 +452,7 @@ where
     /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
     async fn sign(
         &self,
-        messages: Vec<impl Msg + crate::traits::Msg>,
+        messages: Vec<impl Msg + ToAmino>,
         fee: StdFee,
         memo: String,
         explicit_signer_data: Option<SignerData>,
@@ -513,19 +528,13 @@ where
     async fn sign_amino(
         &self,
         account: AccountData,
-        // TODO: this will get annoying fast, if we have to put this bound everywhere.
-        // It would be better to have a single unifying trait we could use...
-        messages: Vec<impl Msg + crate::traits::Msg>,
+        messages: Vec<impl Msg + ToAmino>,
         fee: StdFee,
         memo: String,
         signer_data: SignerData,
     ) -> Result<TxRaw> {
         // TODO: avoid having to make this check all over the place?
-        let sign_mode = self
-            .wallet
-            .get_sign_mode()
-            .await
-            .map_err(crate::Error::custom)?;
+        let sign_mode = self.wallet.get_sign_mode().await?;
 
         let SignMode::LegacyAminoJson = sign_mode else {
             return Err(crate::Error::custom(
@@ -534,9 +543,6 @@ where
         };
 
         // TODO:
-        // 1) convert the messages to Amino messages + encrypt them
-        // 2) create the SignDoc
-        // 3) do self.wallet.sign_amino
         // 4) construct the tx_body, auth_info, etc using a mashup of the original messages, but
         //    the returned signed SignDoc for things like gas and memo changes
         // 5) turn all that into a TxRaw
@@ -546,26 +552,58 @@ where
         let serialized = serde_json::to_string(&amino_msgs).unwrap();
         debug!("Serialized AminoMsg: {}", serialized);
 
-        let sign_doc = todo!();
+        let sign_doc = StdSignDoc {
+            chain_id: self.chain_id.to_string(),
+            account_number: signer_data.account_number.to_string(),
+            sequence: signer_data.account_sequence.to_string(),
+            fee,
+            msgs: amino_msgs,
+            memo,
+        };
 
-        let response: AminoSignResponse = self
-            .wallet
-            .sign_amino(&account.address, sign_doc)
-            .await
-            .map_err(crate::Error::custom)?;
+        let response: AminoSignResponse =
+            self.wallet.sign_amino(&account.address, sign_doc).await?;
 
         let signed: StdSignDoc = response.signed;
         let signature = BASE64_STANDARD.decode(response.signature.signature)?;
 
-        // let signed_tx_raw = TxRaw {
-        //     body_bytes: signed.body_bytes,
-        //     auth_info_bytes: signed.auth_info_bytes,
-        //     signatures: vec![signature],
-        // };
+        let messages: Vec<Any> = messages
+            .iter()
+            .map(|msg| msg.to_any().map_err(crate::Error::custom))
+            .collect::<Result<Vec<Any>>>()?;
 
-        // Ok(signed_tx_raw)
+        let timeout_height = 1u32;
+        let tx_body = TxBody::new(messages, signed.memo, timeout_height);
 
-        todo!()
+        let public_key: PublicKey =
+            secretrs::tendermint::PublicKey::from_raw_secp256k1(&account.pubkey.clone())
+                .expect("invalid raw secp256k1 key bytes")
+                .into();
+
+        let signer_info = SignerInfo::single_direct(Some(public_key), signer_data.account_sequence);
+        let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(
+            signed
+                .fee
+                .amount
+                .first()
+                .expect("empty Vec<Coin>")
+                .to_owned(),
+            signed.fee.gas.parse::<u64>()?,
+        ));
+        let sign_doc = SignDoc::new(
+            &tx_body,
+            &auth_info,
+            &self.chain_id.parse()?,
+            signer_data.account_number,
+        )?;
+
+        let signed_tx_raw = TxRaw {
+            body_bytes: tx_body.into_bytes()?,
+            auth_info_bytes: auth_info.into_bytes()?,
+            signatures: vec![signature],
+        };
+
+        Ok(signed_tx_raw)
     }
 
     async fn sign_direct(
