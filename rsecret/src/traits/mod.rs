@@ -9,13 +9,20 @@ use secretrs::{
 };
 use serde_json::Value;
 
+fn is_plaintext(message: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(message).is_ok()
+}
+
+// Marker trait for identifying messages that require encryption.
+trait NeedsEncryption {}
+
+impl NeedsEncryption for secretrs::compute::MsgExecuteContract {}
+impl NeedsEncryption for secretrs::compute::MsgInstantiateContract {}
+impl NeedsEncryption for secretrs::compute::MsgMigrateContract {}
+
 pub trait Msg: CosmrsMsg {
     fn to_amino(&mut self, utils: EncryptionUtils) -> Result<AminoMsg>;
     fn to_proto(&mut self, utils: EncryptionUtils) -> Result<Any>;
-}
-
-fn is_plaintext(message: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(message).is_ok()
 }
 
 // NOTE: the "msg" used here needs to be the encrypted message. We can get away with this by
@@ -23,7 +30,7 @@ fn is_plaintext(message: &[u8]) -> bool {
 impl Msg for MsgExecuteContract {
     fn to_amino(&mut self, utils: EncryptionUtils) -> Result<AminoMsg> {
         if is_plaintext(&self.msg) {
-            let encrypted = utils.encrypt(&self.code_hash, &self.msg)?;
+            let encrypted = utils.encrypt(todo!("&self.code_hash"), &self.msg)?;
             self.msg = encrypted.into_inner();
         }
 
@@ -40,7 +47,7 @@ impl Msg for MsgExecuteContract {
 
     fn to_proto(&mut self, utils: EncryptionUtils) -> Result<Any> {
         if is_plaintext(&self.msg) {
-            let encrypted = utils.encrypt(&self.code_hash, &self.msg)?;
+            let encrypted = utils.encrypt(todo!("&self.code_hash"), &self.msg)?;
             self.msg = encrypted.into_inner();
         }
 
