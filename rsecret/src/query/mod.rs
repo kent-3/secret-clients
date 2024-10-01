@@ -3,7 +3,9 @@
 use crate::secret_network_client::CreateQuerierOptions;
 use crate::CreateClientOptions;
 use crate::{Error, Result};
+use secretrs::utils::encryption::Enigma;
 use secretrs::EncryptionUtils;
+use std::sync::Arc;
 use tonic::codegen::{Body, Bytes, StdError};
 
 pub mod auth;
@@ -63,18 +65,19 @@ use tx::TxQuerier;
 use upgrade::UpgradeQuerier;
 
 #[derive(Debug, Clone)]
-pub struct Querier<T>
+pub struct Querier<T, U>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    U: Enigma,
 {
     pub auth: AuthQuerier<T>,
     pub authz: AuthzQuerier<T>,
     pub bank: BankQuerier<T>,
-    pub compute: ComputeQuerier<T>,
+    pub compute: ComputeQuerier<T, U>,
     pub distribution: DistributionQuerier<T>,
     pub emergency_button: EmergencyButtonQuerier<T>,
     pub evidence: EvidenceQuerier<T>,
@@ -101,31 +104,32 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct MiniQuerier<T>
+pub struct MiniQuerier<T, U>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     T: Clone,
 {
     pub auth: AuthQuerier<T>,
     pub bank: BankQuerier<T>,
-    pub compute: ComputeQuerier<T>,
+    pub compute: ComputeQuerier<T, U>,
     pub tendermint: TendermintQuerier<T>,
     pub tx: TxQuerier<T>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl MiniQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: Enigma> MiniQuerier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options.encryption_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
         let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
@@ -143,15 +147,15 @@ impl MiniQuerier<::tonic::transport::Channel> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Querier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: Enigma> Querier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options.encryption_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());

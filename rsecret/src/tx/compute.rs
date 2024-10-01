@@ -28,7 +28,7 @@ use secretrs::{
         },
     },
     tx::{Body as TxBody, BodyBuilder, Fee, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
-    utils::encryption::{EncryptionUtils, SecretMsg},
+    utils::encryption::{EncryptionUtils, Enigma, SecretMsg},
     AccountId, Any, Coin,
 };
 use serde::{Deserialize, Serialize};
@@ -41,12 +41,13 @@ use tonic::{
 use tracing::{debug, info, warn};
 
 #[derive(Debug)]
-pub struct ComputeServiceClient<T, S>
+pub struct ComputeServiceClient<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
     inner: TxServiceClient<T>,
@@ -54,7 +55,7 @@ where
     wallet: Arc<S>,
     wallet_address: Arc<str>,
     chain_id: Arc<str>,
-    encryption_utils: EncryptionUtils,
+    encryption_utils: Arc<U>,
     code_hash_cache: HashMap<String, String>,
 }
 
@@ -63,14 +64,13 @@ where
 
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
-use crate::secret_network_client::Enigma;
-
-impl<T, S> Enigma for ComputeServiceClient<T, S>
+impl<T, U, S> crate::secret_network_client::Enigma2 for ComputeServiceClient<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
@@ -238,17 +238,18 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S> ComputeServiceClient<::tonic::transport::Channel, S>
+impl<U, S> ComputeServiceClient<::tonic::transport::Channel, U, S>
 where
+    U: Enigma,
     S: Signer,
 {
-    pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
+    pub async fn connect(options: CreateTxSenderOptions<S, U>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S, U>) -> Self {
         let inner = TxServiceClient::new(channel.clone());
         let auth = AuthQueryClient::new(channel);
 
@@ -294,12 +295,13 @@ impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, S> ComputeServiceClient<T, S>
+impl<T, U, S> ComputeServiceClient<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
     // TODO: I think all the input and output message types should be the proto versions?

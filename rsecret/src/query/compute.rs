@@ -12,31 +12,32 @@ pub use secretrs::{
         QueryContractLabelResponse, QueryContractsByCodeIdResponse, QuerySecretContractRequest,
         QuerySecretContractResponse,
     },
+    utils::encryption::Enigma,
 };
 use secretrs::{utils::encryption::SecretMsg, EncryptionUtils};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tonic::{
     async_trait,
     codegen::{Body, Bytes, StdError},
 };
 
 #[derive(Debug, Clone)]
-pub struct ComputeQuerier<T> {
+pub struct ComputeQuerier<T, U: Enigma> {
     inner: ComputeQueryClient<T>,
-    encryption_utils: EncryptionUtils,
+    encryption_utils: Arc<U>,
     code_hash_cache: HashMap<String, String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl ComputeQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: Enigma> ComputeQuerier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.encryption_utils.into()))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: Arc<U>) -> Self {
         let inner = ComputeQueryClient::new(channel);
         let encryption_utils = encryption_utils;
         let code_hash_cache = HashMap::new();
@@ -62,13 +63,14 @@ impl ComputeQuerier<::tonic_web_wasm_client::Client> {
     }
 }
 
-impl<T> ComputeQuerier<T>
+impl<T, U> ComputeQuerier<T, U>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    U: Enigma,
 {
     pub async fn contract_info(
         &self,

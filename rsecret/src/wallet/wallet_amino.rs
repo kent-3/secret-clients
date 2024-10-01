@@ -255,9 +255,58 @@ pub struct StdSignDoc {
 /// Standard fee.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StdFee {
+    #[serde(
+        serialize_with = "serialize_coins",
+        deserialize_with = "deserialize_coins"
+    )]
     pub amount: Vec<Coin>,
     pub gas: String,
     pub granter: Option<String>,
+}
+
+// A helper struct for serialization/deserialization of Coin where amount is a string
+#[derive(Serialize, Deserialize)]
+struct CoinSerializable {
+    denom: secretrs::Denom,
+    amount: String, // Serialize amount as a string
+}
+
+// Custom serializer for Vec<Coin> where only `amount` is serialized as a string
+fn serialize_coins<S>(coins: &Vec<Coin>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let coins_as_serializable: Vec<_> = coins
+        .iter()
+        .map(|coin| {
+            CoinSerializable {
+                denom: coin.denom.clone(),
+                amount: coin.amount.to_string(), // Serialize `u128` as string
+            }
+        })
+        .collect();
+
+    coins_as_serializable.serialize(serializer)
+}
+
+// Custom deserializer for Vec<Coin> where only `amount` is deserialized from a string
+fn deserialize_coins<'de, D>(deserializer: D) -> Result<Vec<Coin>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let coins_as_serializable: Vec<CoinSerializable> = Vec::deserialize(deserializer)?;
+    let coins: Result<Vec<Coin>, D::Error> = coins_as_serializable
+        .into_iter()
+        .map(|coin_serializable| {
+            let amount =
+                u128::from_str(&coin_serializable.amount).map_err(serde::de::Error::custom)?;
+            Ok(Coin {
+                denom: coin_serializable.denom,
+                amount,
+            })
+        })
+        .collect();
+    coins
 }
 
 /// Standard signature.

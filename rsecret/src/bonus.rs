@@ -1,14 +1,18 @@
 use crate::{wallet::Signer, Result, SecretNetworkClient};
-use secretrs::proto::cosmos::staking::v1beta1::{BondStatus, Validator};
+use secretrs::{
+    proto::cosmos::staking::v1beta1::{BondStatus, Validator},
+    utils::encryption::Enigma,
+};
 use tracing::{debug, info};
 
-impl<T, S> SecretNetworkClient<T, S>
+impl<T, U, S> SecretNetworkClient<T, U, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<tonic::codegen::StdError>,
     T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone,
+    U: Enigma,
     S: Signer,
 {
     pub async fn all_validators(&self) -> Result<Vec<Validator>> {

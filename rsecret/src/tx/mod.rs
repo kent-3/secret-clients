@@ -38,21 +38,23 @@ use crate::wallet::Signer;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
+use secretrs::utils::encryption::Enigma;
 use tonic::codegen::{Body, Bytes, StdError};
 
 #[derive(Debug)]
-pub struct TxSender<T, S>
+pub struct TxSender<T, U, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    U: Enigma,
     S: Signer,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
-    pub compute: ComputeServiceClient<T, S>,
+    pub compute: ComputeServiceClient<T, U, S>,
     pub crisis: CrisisServiceClient<T>,
     pub distribution: DistributionServiceClient<T>,
     pub evidence: EvidenceServiceClient<T>,
@@ -64,15 +66,15 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S: Signer> TxSender<::tonic::transport::Channel, S> {
-    pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
+impl<S: Signer, U: Enigma> TxSender<::tonic::transport::Channel, U, S> {
+    pub async fn connect(options: CreateTxSenderOptions<S, U>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S, U>) -> Self {
         let authz = AuthzServiceClient::new(channel.clone());
         let bank = BankServiceClient::new(channel.clone());
         let compute = ComputeServiceClient::new(channel.clone(), options);
@@ -132,13 +134,14 @@ impl<S: Signer> TxSender<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, S> TxSender<T, S>
+impl<T, U, S> TxSender<T, U, S>
 where
     T: tonic::client::GrpcService<tonic::body::BoxBody>,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     T: Clone,
+    U: Enigma,
     S: Signer,
 {
     // TODO - figure out how to support multiple messages

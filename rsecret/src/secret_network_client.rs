@@ -43,6 +43,7 @@ use secretrs::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
         SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
+    utils::encryption::Enigma,
     Any, Coin, EncryptionUtils,
 };
 use serde::{Deserialize, Serialize};
@@ -71,9 +72,10 @@ where
 }
 
 #[derive(Debug)]
-pub struct CreateClientOptions<S>
+pub struct CreateClientOptions<S, U>
 where
     S: Signer,
+    U: Enigma,
 {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
     pub url: &'static str,
@@ -88,12 +90,13 @@ where
     /// Ignored if `encryption_utils` is supplied. Must be 32 bytes.
     pub encryption_seed: Option<[u8; 32]>,
     /// Optional field to override the default encryption utilities implementation.
-    pub encryption_utils: Option<EncryptionUtils>,
+    pub encryption_utils: Option<U>,
 }
 
-impl<S> Default for CreateClientOptions<S>
+impl<S, U> Default for CreateClientOptions<S, U>
 where
     S: Signer,
+    U: Enigma,
 {
     fn default() -> Self {
         Self {
@@ -107,9 +110,10 @@ where
     }
 }
 
-impl<S> CreateClientOptions<S>
+impl<S, U> CreateClientOptions<S, U>
 where
     S: Signer,
+    U: Enigma,
 {
     pub fn read_only(url: &'static str, chain_id: &'static str) -> Self {
         Self {
@@ -125,22 +129,23 @@ where
 
 // TODO: bad design when a Channel or Client is provided (they already have a URL)
 #[derive(Debug, Clone)]
-pub struct CreateQuerierOptions {
+pub struct CreateQuerierOptions<U: Enigma> {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub encryption_utils: EncryptionUtils,
+    pub encryption_utils: Arc<U>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTxSenderOptions<S>
+pub struct CreateTxSenderOptions<S, U>
 where
     S: Signer,
+    U: Enigma,
 {
     pub url: &'static str,
     pub chain_id: &'static str,
     pub wallet: Arc<S>,
     pub wallet_address: Arc<str>,
-    pub encryption_utils: EncryptionUtils,
+    pub encryption_utils: Arc<U>,
 }
 
 /// Options related to IBC transactions
@@ -315,12 +320,13 @@ type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 trait ReadWrite {}
 
-impl<T, S> ReadWrite for TxSender<T, S>
+impl<T, U, S> ReadWrite for TxSender<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
 }
@@ -328,28 +334,29 @@ where
 impl<S> ReadWrite for Arc<S> {}
 
 #[derive(Debug)]
-pub struct SecretNetworkClient<T, S>
+pub struct SecretNetworkClient<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
     pub url: String,
-    pub query: Querier<T>,
-    pub tx: TxSender<T, S>,
+    pub query: Querier<T, U>,
+    pub tx: TxSender<T, U, S>,
     pub wallet: Arc<S>,
     pub address: String,
     pub chain_id: String,
-    pub encryption_utils: EncryptionUtils,
+    pub encryption_utils: Arc<U>,
     // TODO - is this worth doing?
     // tx_options: Arc<TxOptions>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S: Signer> SecretNetworkClient<::tonic::transport::Channel, S> {
-    pub async fn connect(options: CreateClientOptions<S>) -> Result<Self> {
+impl<S: Signer, U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, S> {
+    pub async fn connect(options: CreateClientOptions<S, U>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
             .tls_config(tls)?
@@ -363,17 +370,23 @@ impl<S: Signer> SecretNetworkClient<::tonic::transport::Channel, S> {
 
     pub fn new(
         channel: ::tonic::transport::Channel,
-        options: CreateClientOptions<S>,
+        options: CreateClientOptions<S, U>,
     ) -> Result<Self> {
         // FIXME: bad API. I should be able to create a read-only client if no signer is given.
         let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
-        // if no EncryptionUtils is provided, one is created
-        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
-            // if no seed is provided, one is randomly generated
-            // TODO: query the chain for the enclave IO pubkey
-            EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
-        });
+        let encryption_utils = Arc::new(
+            options
+                .encryption_utils
+                .expect("EncryptionUtils should be provided"),
+        );
+
+        // // if no EncryptionUtils is provided, one is created
+        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
@@ -410,22 +423,28 @@ impl<S: Signer> SecretNetworkClient<::tonic::transport::Channel, S> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
+impl<U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     pub fn new_wallet(
         channel: ::tonic::transport::Channel,
-        options: CreateClientOptions<Wallet>,
+        options: CreateClientOptions<Wallet, U>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
         let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
             Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
         }));
 
-        // if no EncryptionUtils is provided, one is created
-        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
-            // if no seed is provided, one is randomly generated
-            // TODO: query the chain for the enclave IO pubkey
-            EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
-        });
+        let encryption_utils = Arc::new(
+            options
+                .encryption_utils
+                .expect("must provide encryption_utils"),
+        );
+
+        // // if no EncryptionUtils is provided, one is created
+        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
@@ -508,12 +527,13 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, S> SecretNetworkClient<T, S>
+impl<T, U, S> SecretNetworkClient<T, U, S>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma,
     S: Signer,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
@@ -943,7 +963,7 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
 
 use secretrs::utils::encryption::SecretMsg;
 
-pub trait Enigma {
+pub trait Enigma2 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg>;
     fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
     fn decrypt_tx_response<'a>(&'a self, tx: &'a mut TxResponse) -> Result<&'a mut TxResponse>;
