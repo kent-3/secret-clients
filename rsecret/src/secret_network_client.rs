@@ -47,11 +47,28 @@ use secretrs::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(not(target_arch = "wasm32"))]
 use tonic::transport::ClientTlsConfig;
+
+#[derive(Debug)]
+pub struct SecretNetworkClientBuilder<S>
+where
+    S: Signer,
+{
+    url: Option<&'static str>,
+    chain_id: Option<&'static str>,
+    wallet: Option<Arc<S>>,
+    wallet_address: Option<String>,
+    encryption_seed: Option<[u8; 32]>,
+    encryption_utils: Option<EncryptionUtils>,
+}
 
 #[derive(Debug)]
 pub struct CreateClientOptions<S>
@@ -64,7 +81,7 @@ where
     pub chain_id: &'static str,
     /// An optional wallet for signing transactions & permits. If `wallet` is supplied,
     /// `wallet_address` must also be supplied.
-    pub wallet: Option<Arc<S>>,
+    pub wallet: Option<S>,
     /// The specific account address in the wallet that is permitted to sign transactions & permits.
     pub wallet_address: Option<String>,
     /// Optional encryption seed that will allow transaction decryption at a later time.
@@ -300,11 +317,10 @@ trait ReadWrite {}
 
 impl<T, S> ReadWrite for TxSender<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     S: Signer,
 {
 }
@@ -314,11 +330,10 @@ impl<S> ReadWrite for Arc<S> {}
 #[derive(Debug)]
 pub struct SecretNetworkClient<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     S: Signer,
 {
     pub url: String,
@@ -351,7 +366,7 @@ impl<S: Signer> SecretNetworkClient<::tonic::transport::Channel, S> {
         options: CreateClientOptions<S>,
     ) -> Result<Self> {
         // FIXME: bad API. I should be able to create a read-only client if no signer is given.
-        let wallet = options.wallet.expect("Wallet should be provided");
+        let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
         // if no EncryptionUtils is provided, one is created
         let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
@@ -401,11 +416,9 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
         options: CreateClientOptions<Wallet>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
-        let wallet = options.wallet.unwrap_or_else(|| {
-            Arc::new(Wallet::new(
-                AminoWallet::new(None, WalletOptions::default()).unwrap(),
-            ))
-        });
+        let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
+            Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
+        }));
 
         // if no EncryptionUtils is provided, one is created
         let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
@@ -458,7 +471,7 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
         //     Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
         // }));
 
-        let wallet = options.wallet.expect("Wallet should be provided");
+        let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
         // if no EncryptionUtils is provided, one is created
         let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
@@ -497,11 +510,10 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
 
 impl<T, S> SecretNetworkClient<T, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     S: Signer,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.

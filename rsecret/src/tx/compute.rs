@@ -53,7 +53,6 @@ where
     auth: AuthQueryClient<T>,
     wallet: Arc<S>,
     wallet_address: Arc<str>,
-    // TODO: add this here and everywhere
     chain_id: Arc<str>,
     encryption_utils: EncryptionUtils,
     code_hash_cache: HashMap<String, String>,

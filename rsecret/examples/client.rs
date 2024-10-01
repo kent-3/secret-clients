@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use color_eyre::Result;
-use rsecret::{CreateClientOptions, SecretNetworkClient, TxOptions};
+use rsecret::{wallet::Wallet, CreateClientOptions, SecretNetworkClient, TxOptions};
 use secretrs::{
     compute::ContractInfo,
     proto::{
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
         .pretty()
         .init();
 
-    let options = CreateClientOptions {
+    let options = CreateClientOptions::<Wallet> {
         url: GRPC_URL,
         chain_id: CHAIN_ID,
         ..Default::default()
