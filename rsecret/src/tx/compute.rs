@@ -41,21 +41,21 @@ use tonic::{
 use tracing::{debug, info, warn};
 
 #[derive(Debug)]
-pub struct ComputeServiceClient<T, U, S>
+pub struct ComputeServiceClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     inner: TxServiceClient<T>,
     auth: AuthQueryClient<T>,
-    wallet: Arc<S>,
-    wallet_address: Arc<str>,
     chain_id: Arc<str>,
     encryption_utils: Arc<U>,
+    wallet: Arc<V>,
+    wallet_address: Arc<str>,
     code_hash_cache: HashMap<String, String>,
 }
 
@@ -64,14 +64,14 @@ where
 
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
-impl<T, U, S> crate::secret_network_client::Enigma2 for ComputeServiceClient<T, U, S>
+impl<T, U, V> crate::secret_network_client::Enigma2 for ComputeServiceClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
         self.encryption_utils
@@ -238,18 +238,18 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U, S> ComputeServiceClient<::tonic::transport::Channel, U, S>
+impl<U, V> ComputeServiceClient<::tonic::transport::Channel, U, V>
 where
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
-    pub async fn connect(options: CreateTxSenderOptions<S, U>) -> Result<Self> {
+    pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S, U>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<U, V>) -> Self {
         let inner = TxServiceClient::new(channel.clone());
         let auth = AuthQueryClient::new(channel);
 
@@ -272,8 +272,11 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
+impl<U: Enigma, V: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, U, V> {
+    pub fn new(
+        client: ::tonic_web_wasm_client::Client,
+        options: CreateTxSenderOptions<U, V>,
+    ) -> Self {
         let inner = TxServiceClient::new(client.clone());
         let auth = AuthQueryClient::new(client);
 
@@ -295,14 +298,14 @@ impl<S: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, U, S> ComputeServiceClient<T, U, S>
+impl<T, U, V> ComputeServiceClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     // TODO: I think all the input and output message types should be the proto versions?
     pub async fn store_code(

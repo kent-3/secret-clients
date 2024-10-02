@@ -1,12 +1,13 @@
 #![allow(unused)]
 
-use crate::secret_network_client::CreateQuerierOptions;
-use crate::CreateClientOptions;
-use crate::{Error, Result};
-use secretrs::utils::encryption::Enigma;
-use secretrs::EncryptionUtils;
+use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions, Error, Result};
+use secretrs::{utils::encryption::Enigma, EncryptionUtils};
 use std::sync::Arc;
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 pub mod auth;
 pub mod authz;
@@ -67,11 +68,10 @@ use upgrade::UpgradeQuerier;
 #[derive(Debug, Clone)]
 pub struct Querier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     U: Enigma,
 {
     pub auth: AuthQuerier<T>,
@@ -212,8 +212,8 @@ impl<U: Enigma> Querier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl MiniQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: Enigma> MiniQuerier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
         let compute = ComputeQuerier::new(client.clone(), encryption_utils);
@@ -231,8 +231,8 @@ impl MiniQuerier<::tonic_web_wasm_client::Client> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl Querier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: Enigma> Querier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());

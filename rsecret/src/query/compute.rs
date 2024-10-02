@@ -1,8 +1,9 @@
 use super::{Error, Result};
 use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions};
+use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use regex::Regex;
-pub use secretrs::{
+use secretrs::{
     grpc_clients::ComputeQueryClient,
     proto::secret::compute::v1beta1::{
         ContractCodeHistoryEntry, ContractInfo, ContractInfoWithAddress, QueryByCodeIdRequest,
@@ -17,7 +18,8 @@ pub use secretrs::{
 use secretrs::{utils::encryption::SecretMsg, EncryptionUtils};
 use std::{collections::HashMap, sync::Arc};
 use tonic::{
-    async_trait,
+    body::BoxBody,
+    client::GrpcService,
     codegen::{Body, Bytes, StdError},
 };
 
@@ -50,10 +52,10 @@ impl<U: Enigma> ComputeQuerier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl ComputeQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: Enigma> ComputeQuerier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let inner = ComputeQueryClient::new(client);
-        let encryption_utils = encryption_utils;
+        let encryption_utils = encryption_utils.into();
         let code_hash_cache = HashMap::new();
         Self {
             inner,
@@ -65,11 +67,10 @@ impl ComputeQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T, U> ComputeQuerier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     U: Enigma,
 {
     pub async fn contract_info(

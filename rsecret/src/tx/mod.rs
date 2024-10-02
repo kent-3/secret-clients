@@ -39,22 +39,25 @@ use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
 use secretrs::utils::encryption::Enigma;
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug)]
-pub struct TxSender<T, U, S>
+pub struct TxSender<T, U, V>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
-    pub compute: ComputeServiceClient<T, U, S>,
+    pub compute: ComputeServiceClient<T, U, V>,
     pub crisis: CrisisServiceClient<T>,
     pub distribution: DistributionServiceClient<T>,
     pub evidence: EvidenceServiceClient<T>,
@@ -66,15 +69,15 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S: Signer, U: Enigma> TxSender<::tonic::transport::Channel, U, S> {
-    pub async fn connect(options: CreateTxSenderOptions<S, U>) -> Result<Self> {
+impl<U: Enigma, V: Signer> TxSender<::tonic::transport::Channel, U, V> {
+    pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S, U>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<U, V>) -> Self {
         let authz = AuthzServiceClient::new(channel.clone());
         let bank = BankServiceClient::new(channel.clone());
         let compute = ComputeServiceClient::new(channel.clone(), options);
@@ -104,8 +107,11 @@ impl<S: Signer, U: Enigma> TxSender<::tonic::transport::Channel, U, S> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<S: Signer> TxSender<::tonic_web_wasm_client::Client, S> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions<S>) -> Self {
+impl<U: Enigma, V: Signer> TxSender<::tonic_web_wasm_client::Client, U, V> {
+    pub fn new(
+        client: ::tonic_web_wasm_client::Client,
+        options: CreateTxSenderOptions<U, V>,
+    ) -> Self {
         let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());
         let compute = ComputeServiceClient::new(client.clone(), options);
@@ -134,15 +140,14 @@ impl<S: Signer> TxSender<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, U, S> TxSender<T, U, S>
+impl<T, U, V> TxSender<T, U, V>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     // TODO - figure out how to support multiple messages
     pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {

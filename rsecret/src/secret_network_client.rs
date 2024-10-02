@@ -72,10 +72,10 @@ where
 }
 
 #[derive(Debug)]
-pub struct CreateClientOptions<S, U>
+pub struct CreateClientOptions<U, V>
 where
-    S: Signer,
     U: Enigma,
+    V: Signer,
 {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
     pub url: &'static str,
@@ -83,7 +83,7 @@ where
     pub chain_id: &'static str,
     /// An optional wallet for signing transactions & permits. If `wallet` is supplied,
     /// `wallet_address` must also be supplied.
-    pub wallet: Option<S>,
+    pub wallet: Option<V>,
     /// The specific account address in the wallet that is permitted to sign transactions & permits.
     pub wallet_address: Option<String>,
     /// Optional encryption seed that will allow transaction decryption at a later time.
@@ -93,10 +93,10 @@ where
     pub encryption_utils: Option<U>,
 }
 
-impl<S, U> Default for CreateClientOptions<S, U>
+impl<U, V> Default for CreateClientOptions<U, V>
 where
-    S: Signer,
     U: Enigma,
+    V: Signer,
 {
     fn default() -> Self {
         Self {
@@ -110,10 +110,10 @@ where
     }
 }
 
-impl<S, U> CreateClientOptions<S, U>
+impl<U, V> CreateClientOptions<U, V>
 where
-    S: Signer,
     U: Enigma,
+    V: Signer,
 {
     pub fn read_only(url: &'static str, chain_id: &'static str) -> Self {
         Self {
@@ -129,23 +129,23 @@ where
 
 // TODO: bad design when a Channel or Client is provided (they already have a URL)
 #[derive(Debug, Clone)]
-pub struct CreateQuerierOptions<U: Enigma> {
+pub struct CreateQuerierOptions<T: Enigma> {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub encryption_utils: Arc<U>,
+    pub encryption_utils: Arc<T>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTxSenderOptions<S, U>
+pub struct CreateTxSenderOptions<T, U>
 where
-    S: Signer,
-    U: Enigma,
+    T: Enigma,
+    U: Signer,
 {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub wallet: Arc<S>,
+    pub encryption_utils: Arc<T>,
+    pub wallet: Arc<U>,
     pub wallet_address: Arc<str>,
-    pub encryption_utils: Arc<U>,
 }
 
 /// Options related to IBC transactions
@@ -334,29 +334,29 @@ where
 impl<S> ReadWrite for Arc<S> {}
 
 #[derive(Debug)]
-pub struct SecretNetworkClient<T, U, S>
+pub struct SecretNetworkClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     pub url: String,
-    pub query: Querier<T, U>,
-    pub tx: TxSender<T, U, S>,
-    pub wallet: Arc<S>,
-    pub address: String,
     pub chain_id: String,
     pub encryption_utils: Arc<U>,
+    pub query: Querier<T, U>,
+    pub tx: TxSender<T, U, V>,
+    pub wallet: Arc<V>,
+    pub address: String,
     // TODO - is this worth doing?
     // tx_options: Arc<TxOptions>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S: Signer, U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, S> {
-    pub async fn connect(options: CreateClientOptions<S, U>) -> Result<Self> {
+impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic::transport::Channel, U, V> {
+    pub async fn connect(options: CreateClientOptions<U, V>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
             .tls_config(tls)?
@@ -370,7 +370,7 @@ impl<S: Signer, U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, S
 
     pub fn new(
         channel: ::tonic::transport::Channel,
-        options: CreateClientOptions<S, U>,
+        options: CreateClientOptions<U, V>,
     ) -> Result<Self> {
         // FIXME: bad API. I should be able to create a read-only client if no signer is given.
         let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
@@ -426,7 +426,7 @@ impl<S: Signer, U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, S
 impl<U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     pub fn new_wallet(
         channel: ::tonic::transport::Channel,
-        options: CreateClientOptions<Wallet, U>,
+        options: CreateClientOptions<U, Wallet>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
         let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
@@ -480,10 +480,10 @@ impl<U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     // }
 }
 #[cfg(target_arch = "wasm32")]
-impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
+impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, U, V> {
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
-        options: CreateClientOptions<S>,
+        options: CreateClientOptions<U, V>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
         // let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
@@ -492,12 +492,18 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
 
         let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
-        // if no EncryptionUtils is provided, one is created
-        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
-            // if no seed is provided, one is randomly generated
-            // TODO: query the chain for the enclave IO pubkey
-            EncryptionUtils::new(options.encryption_seed.clone(), options.chain_id).unwrap()
-        });
+        let encryption_utils = Arc::new(
+            options
+                .encryption_utils
+                .expect("must provide encryption_utils"),
+        );
+
+        // // if no EncryptionUtils is provided, one is created
+        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
@@ -509,9 +515,9 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
+            encryption_utils: encryption_utils.clone(),
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
-            encryption_utils: encryption_utils.clone(),
         };
         let tx = TxSender::new(client.clone(), tx_client_options);
 
@@ -527,14 +533,14 @@ impl<S: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, S> {
     }
 }
 
-impl<T, U, S> SecretNetworkClient<T, U, S>
+impl<T, U, V> SecretNetworkClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     U: Enigma,
-    S: Signer,
+    V: Signer,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
     pub async fn get_tx(
