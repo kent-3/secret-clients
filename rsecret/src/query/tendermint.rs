@@ -9,7 +9,11 @@ pub use secretrs::proto::cosmos::base::tendermint::v1beta1::{
 };
 use secretrs::proto::tendermint::v0_34::p2p::DefaultNodeInfo;
 use secretrs::tendermint::block::{Block, Height, Id};
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug, Clone)]
 pub struct TendermintQuerier<T> {
@@ -34,11 +38,10 @@ impl TendermintQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> TendermintQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn get_node_info(&self) -> Result<GetNodeInfoResponse> {
         let request = GetNodeInfoRequest {};

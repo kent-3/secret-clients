@@ -7,7 +7,11 @@ pub use secretrs::{
         QueryInterchainAccountFromAddressRequest, QueryInterchainAccountFromAddressResponse,
     },
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
@@ -33,11 +37,10 @@ impl InterTxQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> InterTxQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     /// QueryInterchainAccountFromAddress returns the interchain account for given owner address on a given connection pair
     pub async fn interchain_account_from_address(
