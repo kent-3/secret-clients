@@ -322,12 +322,12 @@ trait ReadWrite {}
 
 impl<T, U, S> ReadWrite for TxSender<T, U, S>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    S: Signer,
+    U: Enigma + Sync,
+    S: Signer + Sync,
 {
 }
 
@@ -336,12 +336,12 @@ impl<S> ReadWrite for Arc<S> {}
 #[derive(Debug)]
 pub struct SecretNetworkClient<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     pub url: String,
     pub chain_id: String,
@@ -355,7 +355,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic::transport::Channel, U, V> {
+impl<U: Enigma + Sync, V: Signer + Sync> SecretNetworkClient<::tonic::transport::Channel, U, V> {
     pub async fn connect(options: CreateClientOptions<U, V>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
@@ -423,7 +423,7 @@ impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic::transport::Channel, U, V
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
+impl<U: Enigma + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     pub fn new_wallet(
         channel: ::tonic::transport::Channel,
         options: CreateClientOptions<U, Wallet>,
@@ -480,7 +480,9 @@ impl<U: Enigma> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     // }
 }
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, U, V> {
+impl<U: Enigma + Sync, V: Signer + Sync>
+    SecretNetworkClient<::tonic_web_wasm_client::Client, U, V>
+{
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
         options: CreateClientOptions<U, V>,
@@ -535,12 +537,12 @@ impl<U: Enigma, V: Signer> SecretNetworkClient<::tonic_web_wasm_client::Client, 
 
 impl<T, U, V> SecretNetworkClient<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
     pub async fn get_tx(
@@ -553,7 +555,7 @@ where
         let Some(tx_response) = get_tx_response.tx_response else {
             return Ok(None);
         };
-        let tx_response = self.decode_tx_response(tx_response, ibc_tx_options)?;
+        let tx_response = self.decode_tx_response(tx_response, ibc_tx_options).await?;
 
         Ok(Some(tx_response))
     }
@@ -608,8 +610,9 @@ where
             debug!("not sure what to do about pagination yet");
         };
 
-        let tx_responses =
-            self.decode_tx_responses(get_txs_event_response.tx_responses, ibc_tx_options)?;
+        let tx_responses = self
+            .decode_tx_responses(get_txs_event_response.tx_responses, ibc_tx_options)
+            .await?;
 
         Ok(Some(tx_responses))
     }
@@ -625,18 +628,29 @@ where
         todo!()
     }
 
-    fn decode_tx_responses(
+    async fn decode_tx_responses(
         &self,
         tx_responses: Vec<TxResponseProto>,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<Vec<TxResponse>> {
-        tx_responses
-            .into_iter()
-            .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
-            .collect()
+        // tx_responses
+        //     .into_iter()
+        //     .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
+        //     .collect()
+
+        let mut decoded_responses = Vec::new();
+
+        for tx_response in tx_responses {
+            let decoded = self
+                .decode_tx_response(tx_response, ibc_tx_options.clone())
+                .await?;
+            decoded_responses.push(decoded);
+        }
+
+        Ok(decoded_responses)
     }
 
-    fn decode_tx_response(
+    async fn decode_tx_response(
         &self,
         tx_response: TxResponseProto,
         ibc_tx_options: Option<IbcTxOptions>,
@@ -662,7 +676,7 @@ where
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
                         // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
@@ -678,7 +692,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -693,7 +707,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -732,7 +746,8 @@ where
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
+                        {
                             let msg_type =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
@@ -746,7 +761,8 @@ where
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
+                        {
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -758,7 +774,8 @@ where
                         debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
+                        {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -969,10 +986,18 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
 
 use secretrs::utils::encryption::SecretMsg;
 
+#[async_trait(?Send)]
 pub trait Enigma2 {
-    fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg>;
-    fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
-    fn decrypt_tx_response<'a>(&'a self, tx: &'a mut TxResponse) -> Result<&'a mut TxResponse>;
+    async fn encrypt<M: Serialize + Send + Sync>(
+        &self,
+        contract_code_hash: &str,
+        msg: &M,
+    ) -> Result<SecretMsg>;
+    async fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
+    async fn decrypt_tx_response<'a>(
+        &'a self,
+        tx: &'a mut TxResponse,
+    ) -> Result<&'a mut TxResponse>;
 }
 
 #[async_trait]

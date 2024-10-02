@@ -48,12 +48,12 @@ use tonic::{
 #[derive(Debug)]
 pub struct TxSender<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
@@ -69,7 +69,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma, V: Signer> TxSender<::tonic::transport::Channel, U, V> {
+impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U, V> {
     pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -142,12 +142,12 @@ impl<U: Enigma, V: Signer> TxSender<::tonic_web_wasm_client::Client, U, V> {
 
 impl<T, U, V> TxSender<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     // TODO - figure out how to support multiple messages
     pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {

@@ -2,7 +2,7 @@ use super::{Error, Result};
 use crate::{
     query::auth::{AuthQuerier, BaseAccount, QueryAccountRequest},
     secret_network_client::{
-        CreateClientOptions, CreateTxSenderOptions, SignerData, TxOptions, TxResponse,
+        CreateClientOptions, CreateTxSenderOptions, Enigma2, SignerData, TxOptions, TxResponse,
     },
     traits::{is_plaintext, ToAmino},
     wallet::{
@@ -43,12 +43,12 @@ use tracing::{debug, info, warn};
 #[derive(Debug)]
 pub struct ComputeServiceClient<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     inner: TxServiceClient<T>,
     auth: AuthQueryClient<T>,
@@ -64,28 +64,37 @@ where
 
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
+#[async_trait(?Send)]
 impl<T, U, V> crate::secret_network_client::Enigma2 for ComputeServiceClient<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
-    fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg> {
+    async fn encrypt<M: Serialize + Send + Sync>(
+        &self,
+        contract_code_hash: &str,
+        msg: &M,
+    ) -> Result<SecretMsg> {
         self.encryption_utils
+            .clone()
             .encrypt(contract_code_hash, msg)
+            .await
+            .map(|msg| SecretMsg::from(msg))
             .map_err(Into::into)
     }
 
-    fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
+    async fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
         self.encryption_utils
             .decrypt(nonce, ciphertext)
+            .await
             .map_err(Into::into)
     }
 
-    fn decrypt_tx_response<'a>(
+    async fn decrypt_tx_response<'a>(
         &'a self,
         tx_response: &'a mut TxResponse,
     ) -> Result<&'a mut TxResponse> {
@@ -102,7 +111,7 @@ where
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
-                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
                         // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
@@ -118,7 +127,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -133,7 +142,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -168,7 +177,7 @@ where
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
                             let msg_type =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
@@ -182,7 +191,7 @@ where
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -194,7 +203,7 @@ where
                         debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
-                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -240,8 +249,8 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 impl<U, V> ComputeServiceClient<::tonic::transport::Channel, U, V>
 where
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
@@ -300,12 +309,12 @@ impl<U: Enigma, V: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client,
 
 impl<T, U, V> ComputeServiceClient<T, U, V>
 where
-    T: GrpcService<BoxBody> + Clone,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    V: Signer,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
     // TODO: I think all the input and output message types should be the proto versions?
     pub async fn store_code(
@@ -349,7 +358,17 @@ where
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
+        debug!("input msg: {:?}", msg);
+
         is_plaintext(&msg.msg)?;
+
+        let encrypted_msg = self.encrypt(code_hash.into().as_ref(), &msg.msg).await?;
+
+        let msg = MsgExecuteContract {
+            msg: encrypted_msg.into_inner(),
+            ..msg
+        };
+        debug!("encrypted msg: {:?}", msg);
 
         let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
         let tx_response = self

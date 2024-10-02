@@ -11,9 +11,9 @@ where
     T::Error: Into<tonic::codegen::StdError>,
     T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-    T: Clone,
-    U: Enigma,
-    S: Signer,
+    T: Clone + Sync,
+    U: Enigma + Sync,
+    S: Signer + Sync,
 {
     pub async fn all_validators(&self) -> Result<Vec<Validator>> {
         use secretrs::proto::cosmos::base::query::v1beta1::PageRequest;
