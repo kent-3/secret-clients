@@ -2,6 +2,7 @@ use color_eyre::Result;
 use tracing::info;
 
 use rsecret::{wallet::Wallet, CreateClientOptions, SecretNetworkClient};
+use secretrs::EncryptionUtils;
 
 const GRPC_URL: &str = "https://secretnetwork-grpc.lavenderfive.com";
 const CHAIN_ID: &str = "secret-4";
@@ -17,7 +18,7 @@ async fn main() -> Result<()> {
         .pretty()
         .init();
 
-    let options = CreateClientOptions::<Wallet> {
+    let options = CreateClientOptions::<EncryptionUtils, Wallet> {
         url: GRPC_URL,
         chain_id: CHAIN_ID,
         ..Default::default()

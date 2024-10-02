@@ -24,6 +24,7 @@ use secretrs::{
         },
     },
     tendermint::Block,
+    EncryptionUtils,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
@@ -47,7 +48,7 @@ async fn main() -> Result<()> {
         .pretty()
         .init();
 
-    let options = CreateClientOptions::<Wallet> {
+    let options = CreateClientOptions::<EncryptionUtils, Wallet> {
         url: GRPC_URL,
         chain_id: CHAIN_ID,
         ..Default::default()
