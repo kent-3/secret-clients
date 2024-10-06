@@ -565,7 +565,6 @@ where
                 .ok_or("Invalid raw secp256k1 key bytes")?
                 .into();
 
-        // FIXME: single_direct assigns SignMode::Direct, but we need it to be LegacyAminoJson
         let signer_info = SignerInfo {
             public_key: Some(public_key).map(Into::into),
             mode_info: ModeInfo::single(SignMode::LegacyAminoJson),
