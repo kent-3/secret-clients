@@ -1,3 +1,5 @@
+use secretrs::tx::SignMode;
+
 /// Alias for a `Result` with the error type `crate::Error`.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
@@ -15,8 +17,11 @@ pub enum Error {
     MissingField { name: &'static str },
     #[error("{self:?}")]
     InvalidAny { type_url: String },
+
     #[error(transparent)]
     SignerError(#[from] crate::wallet::Error),
+    #[error("Unsupported {0}")]
+    SignMode(&'static str),
 
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]

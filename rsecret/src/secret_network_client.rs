@@ -236,10 +236,10 @@ pub trait ReadonlySigner: Signer {
     async fn get_accounts() -> Result<Vec<AccountData>> {
         Err("get_accounts() is not supported in readonly mode.".into())
     }
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + Send + Sync + 'static>(
         _signer_address: String,
-        _sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+        _sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>> {
         Err("sign_amino() is not supported in readonly mode.".into())
     }
 }

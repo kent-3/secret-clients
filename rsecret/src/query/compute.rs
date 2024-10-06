@@ -32,7 +32,7 @@ pub struct ComputeQuerier<T, U: Enigma> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma> ComputeQuerier<::tonic::transport::Channel, U> {
+impl<U: Enigma + Sync> ComputeQuerier<::tonic::transport::Channel, U> {
     pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -53,7 +53,7 @@ impl<U: Enigma> ComputeQuerier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma> ComputeQuerier<::tonic_web_wasm_client::Client, U> {
+impl<U: Enigma + Sync> ComputeQuerier<::tonic_web_wasm_client::Client, U> {
     pub fn new(client: tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let inner = ComputeQueryClient::new(client);
         let encryption_utils = encryption_utils.into();

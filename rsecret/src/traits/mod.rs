@@ -9,6 +9,7 @@ use secretrs::{
     utils::encryption::Enigma,
     Any,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::any::TypeId;
 use tracing::debug;
@@ -22,9 +23,9 @@ pub fn is_plaintext(message: &[u8]) -> Result<(), crate::Error> {
     }
 }
 
-pub trait Msg: CosmrsMsg + ToAmino {
-    fn to_amino(&mut self, utils: impl Enigma) -> Result<AminoMsg> {
-        Ok(<Self as ToAmino>::to_amino(&self))
+pub trait Msg<T: Serialize>: CosmrsMsg + ToAmino<T> {
+    fn to_amino(&mut self, utils: impl Enigma) -> Result<AminoMsg<T>> {
+        Ok(<Self as ToAmino<T>>::to_amino(&self))
     }
     fn to_proto(&mut self, utils: impl Enigma) -> Result<Any> {
         // It's safe to unwrap here because the only way it can fail is if the buffer given to
@@ -63,63 +64,105 @@ pub trait Msg: CosmrsMsg + ToAmino {
 //     }
 // }
 
-pub trait ToAmino {
-    fn to_amino(&self) -> AminoMsg;
+pub trait ToAmino<T: Serialize> {
+    fn to_amino(&self) -> AminoMsg<T>;
 }
 
-impl ToAmino for MsgExecuteContract {
-    fn to_amino(&self) -> AminoMsg {
+use crate::wallet::wallet_amino::CoinSerializable;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgExecuteContractAminoValue {
+    sender: String,
+    contract: String,
+    msg: String,
+    sent_funds: Vec<CoinSerializable>,
+}
+
+impl ToAmino<MsgExecuteContractAminoValue> for MsgExecuteContract {
+    fn to_amino(&self) -> AminoMsg<MsgExecuteContractAminoValue> {
+        let sent_funds = self
+            .sent_funds
+            .iter()
+            .map(|coin| CoinSerializable::from(coin.clone()))
+            .collect();
         AminoMsg {
             r#type: "wasm/MsgExecuteContract".to_string(),
-            value: serde_json::json!({
-                "sender": self.sender.to_string(),
-                "contract": self.contract.to_string(),
-                "msg": BASE64_STANDARD.encode(&self.msg),
-                "sent_funds": self.sent_funds
-            }),
+            value: MsgExecuteContractAminoValue {
+                sender: self.sender.to_string(),
+                contract: self.contract.to_string(),
+                msg: BASE64_STANDARD.encode(&self.msg),
+                sent_funds,
+            },
         }
     }
 }
 
-impl ToAmino for MsgInstantiateContract {
-    fn to_amino(&self) -> AminoMsg {
-        AminoMsg {
-            r#type: "wasm/MsgInstantiateContract".to_string(),
-            value: serde_json::json!({
-                "sender": self.sender.to_string(),
-                "code_id": self.code_id.to_string(),
-                "label": self.label.to_string(),
-                "init_msg": BASE64_STANDARD.encode(&self.init_msg), // the encrypted version
-                "admin": self.admin
-            }),
-        }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgInstantiateContractAminoValue {
+    sender: String,
+    contract: String,
+    msg: String,
+    sent_funds: Vec<CoinSerializable>,
+}
+
+impl ToAmino<MsgInstantiateContractAminoValue> for MsgInstantiateContract {
+    fn to_amino(&self) -> AminoMsg<MsgInstantiateContractAminoValue> {
+        // AminoMsg {
+        //     r#type: "wasm/MsgInstantiateContract".to_string(),
+        //     value: serde_json::json!({
+        //         "sender": self.sender.to_string(),
+        //         "code_id": self.code_id.to_string(),
+        //         "label": self.label.to_string(),
+        //         "init_msg": BASE64_STANDARD.encode(&self.init_msg), // the encrypted version
+        //         "admin": self.admin
+        //     }),
+        // }
+        todo!()
     }
 }
 
-impl ToAmino for MsgMigrateContract {
-    fn to_amino(&self) -> AminoMsg {
-        AminoMsg {
-            r#type: "wasm/MsgMigrateContract".to_string(),
-            value: serde_json::json!({
-                "sender": self.sender.to_string(),
-                "contract": self.contract.to_string(),
-                "msg": BASE64_STANDARD.encode(&self.msg), // the encrypted version
-                "code_id": self.code_id.to_string(),
-            }),
-        }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgMigrateContractAminoValue {
+    sender: String,
+    contract: String,
+    msg: String,
+    code_id: String,
+}
+
+impl ToAmino<MsgMigrateContractAminoValue> for MsgMigrateContract {
+    fn to_amino(&self) -> AminoMsg<MsgMigrateContractAminoValue> {
+        // AminoMsg {
+        //     r#type: "wasm/MsgMigrateContract".to_string(),
+        //     value: serde_json::json!({
+        //         "sender": self.sender.to_string(),
+        //         "contract": self.contract.to_string(),
+        //         "msg": BASE64_STANDARD.encode(&self.msg), // the encrypted version
+        //         "code_id": self.code_id.to_string(),
+        //     }),
+        // }
+        todo!()
     }
 }
 
-impl ToAmino for MsgStoreCode {
-    fn to_amino(&self) -> AminoMsg {
-        AminoMsg {
-            r#type: "wasm/MsgStoreCode".to_string(),
-            value: serde_json::json!({
-                "sender": self.sender.to_string(),
-                "wasm_byte_code": BASE64_STANDARD.encode(&self.wasm_byte_code),
-                "source": self.source,
-                "builder": self.builder
-            }),
-        }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MsgStoreCodeAminoValue {
+    sender: String,
+    wasm_byte_code: String,
+    source: String,
+    builder: String,
+}
+
+impl ToAmino<MsgStoreCodeAminoValue> for MsgStoreCode {
+    fn to_amino(&self) -> AminoMsg<MsgStoreCodeAminoValue> {
+        // AminoMsg {
+        //     r#type: "wasm/MsgStoreCode".to_string(),
+        //     value: serde_json::json!({
+        //         "sender": self.sender.to_string(),
+        //         "wasm_byte_code": BASE64_STANDARD.encode(&self.wasm_byte_code),
+        //         "source": self.source,
+        //         "builder": self.builder
+        //     }),
+        // }
+        todo!()
     }
 }

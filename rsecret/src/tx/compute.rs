@@ -6,7 +6,7 @@ use crate::{
     },
     traits::{is_plaintext, ToAmino},
     wallet::{
-        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc},
+        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc, StdSignature},
         AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
     },
 };
@@ -27,11 +27,11 @@ use secretrs::{
             MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
         },
     },
-    tx::{Body as TxBody, BodyBuilder, Fee, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
+    tx::{Body as TxBody, BodyBuilder, Fee, ModeInfo, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
     utils::encryption::{EncryptionUtils, Enigma, SecretMsg},
     AccountId, Any, Coin,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tonic::{
     body::BoxBody,
@@ -281,7 +281,9 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma, V: Signer> ComputeServiceClient<::tonic_web_wasm_client::Client, U, V> {
+impl<U: Enigma + Sync, V: Signer + Sync>
+    ComputeServiceClient<::tonic_web_wasm_client::Client, U, V>
+{
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
         options: CreateTxSenderOptions<U, V>,
@@ -352,21 +354,21 @@ where
         Ok(tx_response)
     }
 
-    pub async fn execute_contract(
+    pub async fn execute_contract<M: Serialize + Send + Sync + std::fmt::Debug>(
         &self,
-        msg: MsgExecuteContract,
+        msg: MsgExecuteContractRaw<M>,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
         debug!("input msg: {:?}", msg);
 
-        is_plaintext(&msg.msg)?;
+        // is_plaintext(&msg.msg)?;
 
         let encrypted_msg = self.encrypt(code_hash.into().as_ref(), &msg.msg).await?;
 
         let msg = MsgExecuteContract {
             msg: encrypted_msg.into_inner(),
-            ..msg
+            ..msg.into()
         };
         debug!("encrypted msg: {:?}", msg);
 
@@ -383,7 +385,7 @@ where
 
     pub async fn migrate_contract(
         &self,
-        msg: MsgExecuteContract,
+        msg: MsgMigrateContract,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponseProto> {
@@ -398,42 +400,15 @@ where
         todo!()
     }
 
-    async fn prepare_and_sign<M: Msg + ToAmino>(
+    async fn prepare_and_sign<
+        S: Serialize + DeserializeOwned + Send + Sync,
+        M: Msg + ToAmino<S>,
+    >(
         &self,
         messages: Vec<M>,
         tx_options: TxOptions,
     ) -> Result<BroadcastTxRequest> {
-        let accounts = self.wallet.get_accounts().await.unwrap();
-        let account = accounts.first().expect("no accounts");
-        let address = account.address.clone();
-        let public_key: PublicKey =
-            secretrs::tendermint::PublicKey::from_raw_secp256k1(&account.pubkey.clone())
-                .expect("invalid raw secp256k1 key bytes")
-                .into();
-
-        let request = QueryAccountRequest { address };
-        let response = self.auth.clone().account(request).await?;
-
-        let (metadata, response, _) = response.into_parts();
-
-        let http_headers = metadata.into_headers();
-        let block_height = http_headers
-            .get("x-cosmos-block-height")
-            .and_then(|header| header.to_str().ok())
-            .and_then(|header_str| u32::from_str(header_str).ok())
-            .expect("Failed to retrieve and parse block height");
-
-        let account = response
-            .account
-            .and_then(|any| any.to_msg::<BaseAccount>().ok())
-            .ok_or_else(|| Error::custom("No account found"))?;
-
-        let chain_id = self.chain_id.to_string();
-        let account_number = account.account_number;
-        let sequence = account.sequence;
         let memo = tx_options.memo;
-        let timeout_height = block_height + 10;
-
         let gas = tx_options.gas_limit;
         let gas_price = tx_options.gas_price_in_fee_denom;
         let gas_fee_amount = gas as u128 * (gas_price * 1000000.0) as u128 / 1000000u128;
@@ -473,9 +448,9 @@ where
     ///
     /// You can pass signer data (account number, sequence and chain ID) explicitly instead of querying them
     /// from the chain. This is needed when signing for a multisig account, but it also allows for offline signing.
-    async fn sign(
+    async fn sign<S: Serialize + DeserializeOwned + Send + Sync, M: Msg + ToAmino<S>>(
         &self,
-        messages: Vec<impl Msg + ToAmino>,
+        messages: Vec<M>,
         fee: StdFee,
         memo: String,
         explicit_signer_data: Option<SignerData>,
@@ -483,6 +458,7 @@ where
         let signer = self.wallet.as_ref();
         let signer_address = self.wallet_address.as_ref();
 
+        // All this to make sure the account matches the one given when the client was created.
         let account_from_signer: AccountData = signer
             .get_accounts()
             .await
@@ -495,63 +471,54 @@ where
                     .ok_or_else(|| crate::Error::custom("Failed to retrieve account from signer"))
             })?;
 
-        // TODO: match secret.js carefully. They do a lot more of the preparation inside of these
-        // sign methods instead of in the "prepare_tx" method.
+        let signer_data = if let Some(signer_data) = explicit_signer_data {
+            signer_data
+        } else {
+            let request = QueryAccountRequest {
+                address: signer_address.to_string(),
+            };
+            let response = self.auth.clone().account(request).await?;
 
-        // signerData = {
-        //     accountNumber: Number(baseAccount.account_number),
-        //     sequence: Number(baseAccount.sequence),
-        //     chainId: this.chainId,
-        //   };
+            let (metadata, response, _) = response.into_parts();
 
-        let request = QueryAccountRequest {
-            address: signer_address.to_string(),
-        };
-        let response = self.auth.clone().account(request).await?;
+            let http_headers = metadata.into_headers();
+            let block_height = http_headers
+                .get("x-cosmos-block-height")
+                .and_then(|header| header.to_str().ok())
+                .and_then(|header_str| u32::from_str(header_str).ok())
+                .ok_or("Failed to retrieve and parse block height")?;
 
-        let (metadata, response, _) = response.into_parts();
+            let account: BaseAccount = response
+                .account
+                .and_then(|any| any.to_msg::<BaseAccount>().ok())
+                .ok_or("No account found")?;
 
-        let http_headers = metadata.into_headers();
-        let block_height = http_headers
-            .get("x-cosmos-block-height")
-            .and_then(|header| header.to_str().ok())
-            .and_then(|header_str| u32::from_str(header_str).ok())
-            .ok_or(Error::custom("Failed to retrieve and parse block height"))?;
+            let signer_data = SignerData {
+                account_number: account.account_number,
+                account_sequence: account.sequence,
+                chain_id: self.chain_id.to_string(),
+            };
 
-        let account: BaseAccount = response
-            .account
-            .and_then(|any| any.to_msg::<BaseAccount>().ok())
-            .ok_or(Error::custom("No account found"))?;
-
-        let signer_data = SignerData {
-            account_number: account.account_number,
-            account_sequence: account.sequence,
-            chain_id: self.chain_id.to_string(),
+            signer_data
         };
 
-        match signer.get_sign_mode().await.map_err(Error::custom)? {
-            SignMode::LegacyAminoJson => {
-                let signed_tx_raw: TxRaw = self
-                    .sign_amino(account_from_signer, messages, fee, memo, signer_data)
-                    .await?;
-
-                Ok(signed_tx_raw.into())
-            }
+        match signer.get_sign_mode().await? {
             SignMode::Direct => {
-                let signed_tx_raw: TxRaw = self
-                    .sign_direct(account_from_signer, messages, fee, memo, signer_data)
-                    .await?;
-
-                Ok(signed_tx_raw.into())
+                self.sign_direct(account_from_signer, messages, fee, memo, signer_data)
+                    .await
             }
-            _ => Err(crate::Error::custom("Unsupported SignMode")),
+            SignMode::LegacyAminoJson => {
+                self.sign_amino(account_from_signer, messages, fee, memo, signer_data)
+                    .await
+            }
+            mode @ _ => Err(Error::SignMode(mode.as_str_name())),
         }
     }
 
-    async fn sign_amino(
+    async fn sign_amino<S: Serialize + DeserializeOwned + Send + Sync, M: Msg + ToAmino<S>>(
         &self,
         account: AccountData,
-        messages: Vec<impl Msg + ToAmino>,
+        messages: Vec<M>,
         fee: StdFee,
         memo: String,
         signer_data: SignerData,
@@ -565,15 +532,7 @@ where
             ));
         };
 
-        // TODO:
-        // 4) construct the tx_body, auth_info, etc using a mashup of the original messages, but
-        //    the returned signed SignDoc for things like gas and memo changes
-        // 5) turn all that into a TxRaw
-
-        let amino_msgs: Vec<AminoMsg> = messages.iter().map(|msg| msg.to_amino()).collect();
-
-        let serialized = serde_json::to_string(&amino_msgs).unwrap();
-        debug!("Serialized AminoMsg: {}", serialized);
+        let amino_msgs: Vec<AminoMsg<S>> = messages.iter().map(|msg| msg.to_amino()).collect();
 
         let sign_doc = StdSignDoc {
             chain_id: self.chain_id.to_string(),
@@ -584,46 +543,57 @@ where
             memo,
         };
 
-        let response: AminoSignResponse =
+        let response: AminoSignResponse<S> =
             self.wallet.sign_amino(&account.address, sign_doc).await?;
+        debug!("{:?}", serde_json::to_string(&response));
 
-        let signed: StdSignDoc = response.signed;
-        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+        let signed: StdSignDoc<S> = response.signed;
+        let signature: StdSignature = response.signature;
+        let signature_bytes = BASE64_STANDARD.decode(signature.signature)?;
 
         let messages: Vec<Any> = messages
             .iter()
-            .map(|msg| msg.to_any().map_err(crate::Error::custom))
+            .map(|msg| msg.to_any().map_err(Error::custom))
             .collect::<Result<Vec<Any>>>()?;
 
-        let timeout_height = 1u32;
+        // TODO: use current block height + something? (If that's supported)
+        let timeout_height = 0u32;
         let tx_body = TxBody::new(messages, signed.memo, timeout_height);
 
-        let public_key: PublicKey =
+        let public_key: secretrs::crypto::PublicKey =
             secretrs::tendermint::PublicKey::from_raw_secp256k1(&account.pubkey.clone())
-                .expect("invalid raw secp256k1 key bytes")
+                .ok_or("Invalid raw secp256k1 key bytes")?
                 .into();
 
-        let signer_info = SignerInfo::single_direct(Some(public_key), signer_data.account_sequence);
+        // FIXME: single_direct assigns SignMode::Direct, but we need it to be LegacyAminoJson
+        let signer_info = SignerInfo {
+            public_key: Some(public_key).map(Into::into),
+            mode_info: ModeInfo::single(SignMode::LegacyAminoJson),
+            sequence: signed.sequence.parse::<u64>()?,
+        };
         let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(
             signed
                 .fee
                 .amount
                 .first()
-                .expect("empty Vec<Coin>")
+                .ok_or("Empty Vec<Coin>!")?
                 .to_owned(),
             signed.fee.gas.parse::<u64>()?,
         ));
-        let sign_doc = SignDoc::new(
-            &tx_body,
-            &auth_info,
-            &self.chain_id.parse()?,
-            signer_data.account_number,
-        )?;
+        // let sign_doc = SignDoc::new(
+        //     &tx_body,
+        //     &auth_info,
+        //     &self.chain_id.parse()?,
+        //     signer_data.account_number,
+        // )?;
+
+        debug!("{:?}", tx_body);
+        debug!("{:?}", auth_info);
 
         let signed_tx_raw = TxRaw {
             body_bytes: tx_body.into_bytes()?,
             auth_info_bytes: auth_info.into_bytes()?,
-            signatures: vec![signature],
+            signatures: vec![signature_bytes],
         };
 
         Ok(signed_tx_raw)
@@ -705,78 +675,32 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MsgInstantiateContractParams {
-    /// The actor that signed the messages
-    pub sender: String,
-    /// The id of the contract's WASM code
-    pub code_id: CodeId,
-    /// A unique label across all contracts
-    pub label: String,
-    /// The input message to the contract's constructor
-    pub init_msg: serde_json::Value,
-    /// Funds to send to the contract
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub init_funds: Option<Vec<Coin>>,
-    /// The SHA256 hash value of the contract's WASM bytecode
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code_hash: Option<String>,
-    /// Admin is an optional address that can execute migrations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub admin: Option<String>,
+#[derive(Debug, Clone)]
+/// MsgExecuteContract execute a contract handle function
+pub struct MsgExecuteContractRaw<M>
+where
+    M: Serialize,
+{
+    /// Sender is the that actor that signed the messages
+    pub sender: AccountId,
+
+    /// The contract instance to execute the message on
+    pub contract: AccountId,
+
+    /// The message to pass to the contract handle method
+    pub msg: M,
+
+    /// Native amounts of coins to send with this message
+    pub sent_funds: Vec<Coin>,
 }
 
-// This enum can handle both `number` and `string` for `code_id`
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum CodeId {
-    Number(u64),
-    String(String),
+impl<M: Serialize> From<MsgExecuteContractRaw<M>> for MsgExecuteContract {
+    fn from(value: MsgExecuteContractRaw<M>) -> Self {
+        Self {
+            sender: value.sender,
+            contract: value.contract,
+            msg: serde_json::to_vec(&value.msg).unwrap(),
+            sent_funds: value.sent_funds,
+        }
+    }
 }
-
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct MsgInstantiateContract {
-//     pub sender: String,
-//     pub code_id: String,
-//     pub label: String,
-//     pub init_msg: serde_json::Value, // object in TypeScript can be serde_json::Value in Rust
-//     pub init_funds: Vec<Coin>,
-//     pub code_hash: String,
-//     pub admin: Option<String>, // Optional field
-//
-//     // Fields that are not public
-//     init_msg_encrypted: Option<Vec<u8>>, // Uint8Array in TypeScript is Vec<u8> in Rust
-//     warn_code_hash: bool,
-// }
-//
-// // Implementing functions (similar to the constructor and methods in the TypeScript class)
-// impl MsgInstantiateContract {
-//     // Constructor method
-//     pub fn new(params: MsgInstantiateContractParams) -> Self {
-//         MsgInstantiateContract {
-//             sender: params.sender,
-//             code_id: match params.code_id {
-//                 CodeId::Number(n) => n.to_string(), // Handle number or string for code_id
-//                 CodeId::String(s) => s,
-//             },
-//             label: params.label,
-//             init_msg: params.init_msg,
-//             init_funds: params.init_funds.unwrap_or_default(), // Default to an empty vector
-//             code_hash: params.code_hash.unwrap_or_default(),
-//             admin: params.admin,
-//
-//             // Private fields
-//             init_msg_encrypted: None,
-//             warn_code_hash: false, // Default value in TypeScript
-//         }
-//     }
-//
-//     // You can add other methods as needed to match the class functionality
-//     pub fn set_warn_code_hash(&mut self, value: bool) {
-//         self.warn_code_hash = value;
-//     }
-//
-//     pub fn encrypt_init_msg(&mut self, encrypted_msg: Vec<u8>) {
-//         self.init_msg_encrypted = Some(encrypted_msg);
-//     }
-// }

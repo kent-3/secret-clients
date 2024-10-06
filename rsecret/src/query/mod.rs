@@ -106,12 +106,11 @@ where
 #[derive(Debug, Clone)]
 pub struct MiniQuerier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
-    T: Clone,
+    U: Enigma + Sync,
 {
     pub auth: AuthQuerier<T>,
     pub bank: BankQuerier<T>,
@@ -121,7 +120,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma> MiniQuerier<::tonic::transport::Channel, U> {
+impl<U: Enigma + Sync> MiniQuerier<::tonic::transport::Channel, U> {
     pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -147,7 +146,7 @@ impl<U: Enigma> MiniQuerier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma> Querier<::tonic::transport::Channel, U> {
+impl<U: Enigma + Sync> Querier<::tonic::transport::Channel, U> {
     pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -212,7 +211,7 @@ impl<U: Enigma> Querier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma> MiniQuerier<::tonic_web_wasm_client::Client, U> {
+impl<U: Enigma + Sync> MiniQuerier<::tonic_web_wasm_client::Client, U> {
     pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
@@ -231,7 +230,7 @@ impl<U: Enigma> MiniQuerier<::tonic_web_wasm_client::Client, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma> Querier<::tonic_web_wasm_client::Client, U> {
+impl<U: Enigma + Sync> Querier<::tonic_web_wasm_client::Client, U> {
     pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());

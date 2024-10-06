@@ -128,11 +128,11 @@ impl Signer for Wallet {
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse, super::Error> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         if signer_address != self.0.address {
             return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
@@ -152,11 +152,11 @@ impl Signer for Wallet {
         })
     }
 
-    async fn sign_permit(
+    async fn sign_permit<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse, super::Error> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         todo!()
     }
 

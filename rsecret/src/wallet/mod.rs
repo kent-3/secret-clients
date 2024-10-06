@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use secretrs::tx::SignMode;
+use serde::{de::DeserializeOwned, Serialize};
 
 pub(crate) mod error;
 pub(crate) mod wallet_amino;
@@ -23,17 +24,17 @@ pub trait Signer: std::fmt::Debug {
     ///
     /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
     /// return the doc that was signed in the response.
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + DeserializeOwned + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Error>;
+        sign_doc: StdSignDoc<T>,
+    ) -> std::result::Result<AminoSignResponse<T>, Error>;
 
-    async fn sign_permit(
+    async fn sign_permit<T: Serialize + DeserializeOwned + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Error>;
+        sign_doc: StdSignDoc<T>,
+    ) -> std::result::Result<AminoSignResponse<T>, Error>;
 
     async fn sign_direct(
         &self,

@@ -149,11 +149,11 @@ impl Signer for AminoWallet {
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse, super::Error> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         if signer_address != self.address {
             return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
@@ -173,11 +173,11 @@ impl Signer for AminoWallet {
         })
     }
 
-    async fn sign_permit(
+    async fn sign_permit<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse, super::Error> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         todo!()
     }
 
@@ -224,18 +224,18 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey, super::Error> {
 
 /// An Amino encoded message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AminoMsg {
+pub struct AminoMsg<T: Serialize> {
     pub r#type: String,
-    pub value: serde_json::Value,
+    pub value: T,
 }
 
 /// Response after signing with Amino.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AminoSignResponse {
+pub struct AminoSignResponse<T: Serialize> {
     /// The sign_doc that was signed.
     ///
     /// This may be different from the input sign_doc when the signer modifies it as part of the signing process.
-    pub signed: StdSignDoc,
+    pub signed: StdSignDoc<T>,
     pub signature: StdSignature,
 }
 
@@ -243,12 +243,12 @@ pub struct AminoSignResponse {
 ///
 /// See https://docs.cosmos.network/master/modules/auth/03_types.html#stdsigndoc
 #[derive(Debug, Serialize, Deserialize)]
-pub struct StdSignDoc {
+pub struct StdSignDoc<T: Serialize> {
     pub chain_id: String,
     pub account_number: String,
     pub sequence: String,
     pub fee: StdFee,
-    pub msgs: Vec<AminoMsg>,
+    pub msgs: Vec<AminoMsg<T>>,
     pub memo: String,
 }
 
@@ -264,11 +264,21 @@ pub struct StdFee {
     pub granter: Option<String>,
 }
 
-// A helper struct for serialization/deserialization of Coin where amount is a string
-#[derive(Serialize, Deserialize)]
-struct CoinSerializable {
+// TODO: name better
+/// A helper struct for serialization/deserialization of Coin where amount is a string
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CoinSerializable {
     denom: secretrs::Denom,
     amount: String, // Serialize amount as a string
+}
+
+impl From<secretrs::Coin> for CoinSerializable {
+    fn from(coin: secretrs::Coin) -> Self {
+        CoinSerializable {
+            denom: coin.denom,
+            amount: coin.amount.to_string(),
+        }
+    }
 }
 
 // Custom serializer for Vec<Coin> where only `amount` is serialized as a string
@@ -312,7 +322,7 @@ where
 /// Standard signature.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StdSignature {
-    #[serde(alias = "pubKey")]
+    #[serde(rename = "pubKey", alias = "pub_key")]
     pub pub_key: Pubkey,
     pub signature: String,
 }
@@ -391,7 +401,7 @@ fn json_sorted_stringify(value: &Value) -> String {
 }
 
 /// Serializes a `StdSignDoc` object to a sorted and UTF-8 encoded JSON string
-pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
+pub(crate) fn serialize_std_sign_doc<T: Serialize>(sign_doc: &StdSignDoc<T>) -> Vec<u8> {
     let value = serde_json::to_value(sign_doc).unwrap();
     json_sorted_stringify(&value).as_bytes().to_vec()
 }

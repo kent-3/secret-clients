@@ -107,7 +107,7 @@ impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma, V: Signer> TxSender<::tonic_web_wasm_client::Client, U, V> {
+impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic_web_wasm_client::Client, U, V> {
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
         options: CreateTxSenderOptions<U, V>,
