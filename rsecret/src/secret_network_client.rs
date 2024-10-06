@@ -638,7 +638,7 @@ where
         //     .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
         //     .collect()
 
-        let mut decoded_responses = Vec::new();
+        let mut decoded_responses = Vec::with_capacity(tx_responses.len());
 
         for tx_response in tx_responses {
             let decoded = self
@@ -1020,12 +1020,10 @@ pub trait TxDecoder {
     ) -> Result<TxResponse> {
         let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
 
-        let Some(any) = tx_response.tx else {
-            return Err("missing field: 'tx'".into());
+        if let Some(any) = tx_response.tx {
+            debug!("processing tx...");
+            let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
         };
-
-        debug!("processing tx...");
-        let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
         debug!("processing data...");
         let mut data =
@@ -1062,7 +1060,7 @@ pub trait TxDecoder {
             info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
             gas_used: tx_response.gas_used as u64,
-            tx,
+            tx: todo!("'tx' is not optional in TxResponse, but is in TxResponseProto..."),
             timestamp: tx_response.timestamp,
             events,
         })
@@ -1164,11 +1162,22 @@ use crate::tx::{ComputeServiceClient, TxServiceClient};
 #[async_trait]
 impl<T> TxDecoder for TxServiceClient<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
+{
+}
+
+#[async_trait]
+impl<T, U, V> TxDecoder for ComputeServiceClient<T, U, V>
+where
+    T: GrpcService<BoxBody> + Clone + Sync,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: Enigma + Sync,
+    V: Signer + Sync,
 {
 }
 

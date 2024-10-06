@@ -2,7 +2,8 @@ use super::{Error, Result};
 use crate::{
     query::auth::{AuthQuerier, BaseAccount, QueryAccountRequest},
     secret_network_client::{
-        CreateClientOptions, CreateTxSenderOptions, Enigma2, SignerData, TxOptions, TxResponse,
+        CreateClientOptions, CreateTxSenderOptions, Enigma2, IbcTxOptions, SignerData, TxDecoder,
+        TxOptions, TxResponse,
     },
     traits::{is_plaintext, ToAmino},
     wallet::{
@@ -21,17 +22,24 @@ use secretrs::{
     proto::{
         cosmos::{
             base::abci::v1beta1::TxResponse as TxResponseProto,
-            tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse, TxRaw},
+            tx::v1beta1::{
+                BroadcastMode, BroadcastTxRequest, BroadcastTxResponse, Tx as TxPb, TxRaw,
+            },
         },
         secret::compute::v1beta1::{
             MsgExecuteContractResponse, MsgInstantiateContractResponse, MsgMigrateContractResponse,
         },
     },
-    tx::{Body as TxBody, BodyBuilder, Fee, ModeInfo, Msg, Raw, SignDoc, SignMode, SignerInfo, Tx},
+    tx::{
+        Body as TxBody, BodyBuilder, Fee, MessageExt, ModeInfo, Msg, Raw, SignDoc, SignMode,
+        SignerInfo, Tx,
+    },
     utils::encryption::{EncryptionUtils, Enigma, SecretMsg},
     AccountId, Any, Coin,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tonic::{
     body::BoxBody,
@@ -65,7 +73,7 @@ where
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 #[async_trait(?Send)]
-impl<T, U, V> crate::secret_network_client::Enigma2 for ComputeServiceClient<T, U, V>
+impl<T, U, V> Enigma2 for ComputeServiceClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
@@ -318,86 +326,141 @@ where
     U: Enigma + Sync,
     V: Signer + Sync,
 {
-    // TODO: I think all the input and output message types should be the proto versions?
-    pub async fn store_code(
-        &self,
-        msg: MsgStoreCode,
-        tx_options: TxOptions,
-    ) -> Result<TxResponseProto> {
-        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
-        let tx_response = self
-            .perform(tx_request)
-            .await?
-            .into_inner()
-            .tx_response
-            .ok_or("no response")?;
-
-        Ok(tx_response)
+    pub async fn store_code(&self, msg: MsgStoreCode, tx_options: TxOptions) -> Result<TxResponse> {
+        self.sign_and_broadcast(vec![msg], tx_options).await
     }
 
-    pub async fn instantiate_contract(
+    pub async fn instantiate_contract<M: Serialize + Send + Sync + std::fmt::Debug>(
         &self,
         msg: MsgInstantiateContract,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
-    ) -> Result<TxResponseProto> {
-        is_plaintext(&msg.init_msg)?;
-
-        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
-        let tx_response = self
-            .perform(tx_request)
-            .await?
-            .into_inner()
-            .tx_response
-            .ok_or("no response")?;
-
-        Ok(tx_response)
+    ) -> Result<TxResponse> {
+        self.sign_and_broadcast(vec![msg], tx_options).await
     }
 
     pub async fn execute_contract<M: Serialize + Send + Sync + std::fmt::Debug>(
         &self,
+        // maybe instead of this, take in a "params" struct? or each part individually?
         msg: MsgExecuteContractRaw<M>,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
-    ) -> Result<TxResponseProto> {
-        debug!("input msg: {:?}", msg);
+    ) -> Result<TxResponse> {
+        debug!("{}", serde_json::to_string_pretty(&msg.msg).unwrap());
 
-        // is_plaintext(&msg.msg)?;
-
-        let encrypted_msg = self.encrypt(code_hash.into().as_ref(), &msg.msg).await?;
+        let encrypted_msg = self.encrypt(&code_hash.into(), &msg.msg).await?;
 
         let msg = MsgExecuteContract {
             msg: encrypted_msg.into_inner(),
             ..msg.into()
         };
-        debug!("encrypted msg: {:?}", msg);
 
-        let tx_request = self.prepare_and_sign(vec![msg], tx_options).await?;
-        let tx_response = self
-            .perform(tx_request)
-            .await?
-            .into_inner()
-            .tx_response
-            .ok_or("no response")?;
-
-        Ok(tx_response)
+        self.sign_and_broadcast(vec![msg], tx_options).await
     }
 
-    pub async fn migrate_contract(
+    pub async fn migrate_contract<M: Serialize + Send + Sync + std::fmt::Debug>(
         &self,
         msg: MsgMigrateContract,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
-    ) -> Result<TxResponseProto> {
-        is_plaintext(&msg.msg)?;
+    ) -> Result<TxResponse> {
+        debug!("{}", serde_json::to_string_pretty(&msg.msg).unwrap());
 
-        todo!()
+        let encrypted_msg = self.encrypt(&code_hash.into(), &msg.msg).await?;
+
+        let msg = MsgMigrateContract {
+            msg: encrypted_msg.into_inner(),
+            ..msg.into()
+        };
+
+        self.sign_and_broadcast(vec![msg], tx_options).await
     }
     pub async fn update_admin() {
         todo!()
     }
     pub async fn clear_admin() {
         todo!()
+    }
+
+    /// Broadcasts a signed transaction to the network and monitors its inclusion in a block.
+    ///
+    /// If broadcasting is rejected by the node for some reason (e.g. because of a CheckTx failure),
+    /// an error is thrown.
+    ///
+    /// If the transaction is not included in a block before the provided timeout, this errors with a `TimeoutError`.
+    ///
+    /// If the transaction is included in a block, a [`TxResponse`] is returned. The caller then
+    /// usually needs to check for execution success or failure.
+    async fn broadcast_tx(
+        &self,
+        tx_bytes: Vec<u8>,
+        timeout_ms: u32,
+        check_interval_ms: u32,
+        mut mode: BroadcastMode,
+        wait_for_commit: bool,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<TxResponse> {
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let mut hasher = Sha256::new();
+        hasher.update(&tx_bytes);
+        let hash = hasher.finalize();
+
+        let tx = TxPb::decode(tx_bytes.as_ref())?;
+        let txhash = hex::encode(hash).to_uppercase();
+
+        if !wait_for_commit && mode == BroadcastMode::Block {
+            mode = BroadcastMode::Sync
+        }
+
+        if mode == BroadcastMode::Block {
+            let wait_for_commit = true;
+            let is_broadcast_timed_out = false;
+
+            let request = BroadcastTxRequest {
+                tx_bytes,
+                mode: mode.into(),
+            };
+
+            let mut tx_service = self.inner.clone();
+            let BroadcastTxResponse { tx_response } =
+                tx_service.broadcast_tx(request).await?.into_inner();
+
+            let mut tx_response: TxResponseProto =
+                tx_response.ok_or("Missing field 'tx_response'")?;
+            tx_response.tx = Any::from_msg(&tx).ok();
+
+            let tx_response: TxResponse = self.decode_tx_response(tx_response, None)?;
+        }
+
+        todo!()
+    }
+
+    async fn sign_and_broadcast<
+        S: Serialize + DeserializeOwned + Send + Sync,
+        M: Msg + ToAmino<S>,
+    >(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponse> {
+        let tx_bytes = self
+            .prepare_and_sign(messages, tx_options.clone())
+            .await?
+            .to_bytes()?;
+
+        self.broadcast_tx(
+            tx_bytes,
+            tx_options.broadcast_timeout_ms,
+            tx_options.broadcast_check_interval_ms,
+            tx_options.broadcast_mode,
+            tx_options.wait_for_commit,
+            tx_options.ibc_txs_options,
+        )
+        .await
     }
 
     async fn prepare_and_sign<
@@ -407,7 +470,7 @@ where
         &self,
         messages: Vec<M>,
         tx_options: TxOptions,
-    ) -> Result<BroadcastTxRequest> {
+    ) -> Result<Vec<u8>> {
         let memo = tx_options.memo;
         let gas = tx_options.gas_limit;
         let gas_price = tx_options.gas_price_in_fee_denom;
@@ -438,7 +501,8 @@ where
         let tx_raw = self.sign(messages, fee, memo, explicit_signer_data).await?;
         let tx_bytes = tx_raw.encode_to_vec();
 
-        Ok(BroadcastTxRequest { tx_bytes, mode: 1 })
+        Ok(tx_bytes)
+        // Ok(BroadcastTxRequest { tx_bytes, mode: 1 })
     }
 
     /// Gets account number and sequence from the API, creates a sign doc,
