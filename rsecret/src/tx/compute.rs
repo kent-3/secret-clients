@@ -23,7 +23,8 @@ use secretrs::{
         cosmos::{
             base::abci::v1beta1::TxResponse as TxResponseProto,
             tx::v1beta1::{
-                BroadcastMode, BroadcastTxRequest, BroadcastTxResponse, Tx as TxPb, TxRaw,
+                BroadcastMode, BroadcastTxRequest, BroadcastTxResponse, GetTxRequest,
+                GetTxResponse, Tx as TxPb, TxRaw,
             },
         },
         secret::compute::v1beta1::{
@@ -39,14 +40,21 @@ use secretrs::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tonic::{
     body::BoxBody,
     client::GrpcService,
     codegen::{Body, Bytes, StdError},
 };
 use tracing::{debug, info, warn};
+
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::sleep;
 
 #[derive(Debug)]
 pub struct ComputeServiceClient<T, U, V>
@@ -332,10 +340,19 @@ where
 
     pub async fn instantiate_contract<M: Serialize + Send + Sync + std::fmt::Debug>(
         &self,
-        msg: MsgInstantiateContract,
+        msg: MsgInstantiateContractRaw<M>,
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponse> {
+        debug!("{}", serde_json::to_string_pretty(&msg.init_msg).unwrap());
+
+        let encrypted_msg = self.encrypt(&code_hash.into(), &msg.init_msg).await?;
+
+        let msg = MsgInstantiateContract {
+            init_msg: encrypted_msg.into_inner(),
+            ..msg.into()
+        };
+
         self.sign_and_broadcast(vec![msg], tx_options).await
     }
 
@@ -382,6 +399,20 @@ where
         todo!()
     }
 
+    // NOTE: Each BroadcastMode has different behavior and output.
+    // BroadcastMode::Block (deprecated in v0.47)
+    // - Waits for the tx to be committed to a block.
+    // - Returns the full TxResponse.
+    // BroadcastMode::Sync
+    // - Waits for a CheckTx execution response (some kind of preliminary check that the Tx is valid),
+    //   but does not wait for the tx to be committed in a block.
+    // - Returns a partial TxResponse... unsure how it looks.
+    // - If 'wait_for_commit = true', this function will check for and return a full TxResponse.
+    // BroadcastMode::Async
+    // - Doesn't wait for anything.
+    // - Returns a partial TxResponse... unsure how it looks.
+    // - If 'wait_for_commit = true', this function will check for and return a full TxResponse.
+
     /// Broadcasts a signed transaction to the network and monitors its inclusion in a block.
     ///
     /// If broadcasting is rejected by the node for some reason (e.g. because of a CheckTx failure),
@@ -400,10 +431,11 @@ where
         wait_for_commit: bool,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
-        let start = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis();
+        // let start = SystemTime::now()
+        //     .duration_since(UNIX_EPOCH)
+        //     .expect("Time went backwards")
+        //     .as_millis();
+        let start = Instant::now();
 
         let mut hasher = Sha256::new();
         hasher.update(&tx_bytes);
@@ -418,7 +450,7 @@ where
 
         let mut tx_service = self.inner.clone();
 
-        match mode {
+        let tx_response: Result<TxResponse> = match mode {
             mode @ BroadcastMode::Block => {
                 let wait_for_commit = true;
                 let mut is_broadcast_timed_out = false;
@@ -428,38 +460,34 @@ where
                     mode: mode.into(),
                 };
 
-                let response = tx_service.broadcast_tx(request).await;
-
-                let mut tx_response: TxResponseProto;
-
-                match response {
+                match tx_service.broadcast_tx(request).await {
                     Ok(result) => {
-                        tx_response = result
+                        let mut tx_response = result
                             .into_inner()
                             .tx_response
-                            .ok_or("Missing field 'tx_response'")?
+                            .ok_or("Missing field 'tx_response'")?;
+
+                        // add our tx to the response to guarantee it's there for the decoding step
+                        tx_response.tx = Any::from_msg(&tx).ok();
+
+                        return self.decode_tx_response(tx_response, ibc_tx_options);
                     }
                     Err(status) => {
                         let error_message = status.to_string();
+
                         if error_message
                             .to_lowercase()
                             .contains("timed out waiting for tx to be included in a block")
                         {
+                            // what is the point of this?
                             is_broadcast_timed_out = true;
                         }
                         let message = format!(
                             "Failed to broadcast transaction ID {tx_hash}: {error_message}"
                         );
+
                         return Err(Error::custom(message));
                     }
-                }
-
-                if !is_broadcast_timed_out {
-                    tx_response.tx = Any::from_msg(&tx).ok();
-
-                    let tx_response: TxResponse = self.decode_tx_response(tx_response, None)?;
-
-                    return Ok(tx_response);
                 }
             }
             mode @ BroadcastMode::Sync => {
@@ -467,7 +495,7 @@ where
                     tx_bytes,
                     mode: mode.into(),
                 };
-                let tx_response = tx_service
+                let mut tx_response = tx_service
                     .broadcast_tx(request)
                     .await?
                     .into_inner()
@@ -480,6 +508,11 @@ where
                         tx_response.code, tx_response.codespace, tx_response.raw_log
                     );
                     return Err(Error::custom(message));
+                } else {
+                    // add our tx to the response to guarantee it's there for the decoding step
+                    tx_response.tx = Any::from_msg(&tx).ok();
+
+                    return self.decode_tx_response(tx_response, ibc_tx_options);
                 }
             }
             mode @ BroadcastMode::Async => {
@@ -488,17 +521,67 @@ where
                     mode: mode.into(),
                 };
 
-                let tx_response = tx_service
+                let mut tx_response = tx_service
                     .broadcast_tx(request)
                     .await?
                     .into_inner()
                     .tx_response
                     .ok_or("Missing field 'tx_response'")?;
+
+                if tx_response.code != 0 {
+                    let message = format!(
+                        "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
+                        tx_response.code, tx_response.codespace, tx_response.raw_log
+                    );
+                    return Err(Error::custom(message));
+                } else {
+                    // add our tx to the response to guarantee it's there for the decoding step
+                    tx_response.tx = Any::from_msg(&tx).ok();
+
+                    return self.decode_tx_response(tx_response, ibc_tx_options);
+                }
             }
             BroadcastMode::Unspecified => return Err(Error::custom("Unspecified BroadcastMode")),
         };
 
-        todo!()
+        if !wait_for_commit {
+            return tx_response;
+        }
+
+        // sleep first because there's no point in checking right after broadcasting
+        sleep(Duration::from_millis(check_interval_ms as u64 / 2)).await;
+
+        loop {
+            if let Some(tx_response) = self.get_tx(&tx_hash, ibc_tx_options.clone()).await? {
+                return Ok(tx_response);
+            }
+
+            if start.elapsed().as_millis() > timeout_ms as u128 {
+                return Err(Error::Custom(format!(
+                "Transaction ID {} was submitted but was not yet found on the chain. You might want to check later or increase broadcast_timeout_ms from '{}'.",
+                tx_hash, timeout_ms
+            )));
+            };
+
+            sleep(Duration::from_millis(check_interval_ms as u64)).await;
+        }
+    }
+
+    /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
+    pub async fn get_tx(
+        &self,
+        hash: &str,
+        ibc_tx_options: Option<IbcTxOptions>,
+    ) -> Result<Option<TxResponse>> {
+        let hash = hash.to_string();
+        let request = GetTxRequest { hash };
+        let get_tx_response = self.inner.clone().get_tx(request).await?.into_inner();
+        let tx_response = match get_tx_response.tx_response {
+            Some(tx_response) => Some(self.decode_tx_response(tx_response, ibc_tx_options)?),
+            None => None,
+        };
+
+        Ok(tx_response)
     }
 
     async fn sign_and_broadcast<
@@ -696,7 +779,8 @@ where
             mode_info: ModeInfo::single(SignMode::LegacyAminoJson),
             sequence: signed.sequence.parse::<u64>()?,
         };
-        let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(
+
+        let fee = Fee::from_amount_and_gas(
             signed
                 .fee
                 .amount
@@ -704,13 +788,9 @@ where
                 .ok_or("Empty Vec<Coin>!")?
                 .to_owned(),
             signed.fee.gas.parse::<u64>()?,
-        ));
-        // let sign_doc = SignDoc::new(
-        //     &tx_body,
-        //     &auth_info,
-        //     &self.chain_id.parse()?,
-        //     signer_data.account_number,
-        // )?;
+        );
+
+        let auth_info = signer_info.auth_info(fee);
 
         debug!("{:?}", tx_body);
         debug!("{:?}", auth_info);
@@ -732,37 +812,51 @@ where
         memo: String,
         signer_data: SignerData,
     ) -> Result<TxRaw> {
-        // TODO: avoid having to make this check all over the place?
-        let sign_mode = self
-            .wallet
-            .get_sign_mode()
-            .await
-            .map_err(crate::Error::custom)?;
+        let sign_mode = self.wallet.get_sign_mode().await.map_err(Error::custom)?;
 
         let SignMode::Direct = sign_mode else {
-            return Err(crate::Error::custom(
-                "Wrong signer type! Expected DirectSigner.",
-            ));
+            return Err(Error::custom("Wrong signer type! Expected DirectSigner."));
         };
 
-        // let messages: Vec<Any> = messages
-        //     .iter()
-        //     .map(|msg| msg.to_any().map_err(Into::into))
-        //     .collect()?;
-        //
-        // let tx_body = Body::new(messages, memo, timeout_height);
-        // let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
-        // let auth_info = signer_info.auth_info(Fee::from_amount_and_gas(gas_fee, gas));
-        // let sign_doc = SignDoc::new(&tx_body, &auth_info, &chain_id.parse()?, account_number)?;
+        let messages: Vec<Any> = messages
+            .iter()
+            .map(|msg| msg.to_any().map_err(Error::ErrorReport))
+            .collect::<Result<Vec<Any>>>()?;
 
-        // TODO: create the SignDoc
-        let sign_doc = todo!();
+        // TODO: use current block height + something? (If that's supported)
+        let timeout_height = 0u32;
+        let tx_body = TxBody::new(messages, memo, timeout_height);
+
+        let public_key: secretrs::crypto::PublicKey =
+            secretrs::tendermint::PublicKey::from_raw_secp256k1(&account.pubkey.clone())
+                .ok_or("Invalid raw secp256k1 key bytes")?
+                .into();
+
+        let signer_info = SignerInfo {
+            public_key: Some(public_key).map(Into::into),
+            mode_info: ModeInfo::single(SignMode::Direct),
+            sequence: signer_data.account_sequence,
+        };
+
+        let fee = Fee::from_amount_and_gas(
+            fee.amount.first().ok_or("Empty Vec<Coin>!")?.to_owned(),
+            fee.gas.parse::<u64>()?,
+        );
+
+        let auth_info = signer_info.auth_info(fee);
+
+        let sign_doc = SignDoc::new(
+            &tx_body,
+            &auth_info,
+            &self.chain_id.parse()?,
+            signer_data.account_number,
+        )?;
 
         let response: DirectSignResponse = self
             .wallet
             .sign_direct(&account.address, sign_doc)
             .await
-            .map_err(crate::Error::custom)?;
+            .map_err(Error::custom)?;
 
         let signed = response.signed;
         let signature = BASE64_STANDARD.decode(response.signature.signature)?;
@@ -776,32 +870,17 @@ where
         Ok(signed_tx_raw)
     }
 
-    // TODO: I need a way to distinguish which message types need to be encrypted. Although, I
-    // could just keep the 'compute' methods different from all the others... instead of giving
-    // EncryptionUtils to every toProto/toAmino method and ignoring it for every other module
-    // message type.
-
-    // TODO: I might want to introduce a new trait for "messages that get encrypted", with methods
-    // to_proto and to_amino, and each of those methods involves encrypting the inner message.
-
     // TODO: this function queries for contract code hashes if they are missing, but I'd need to
     // create new structs to represent the equivalents in secret.js.
-    // Actually, I might ignore this and just have separate functions for those 3 message types
-    // that need it...
     async fn populate_code_hash<M: Msg>(&self, msg: M) {
-        todo!()
-    }
-
-    async fn perform(
-        &self,
-        request: BroadcastTxRequest,
-    ) -> ::tonic::Result<::tonic::Response<BroadcastTxResponse>, ::tonic::Status> {
-        self.inner.clone().broadcast_tx(request).await
+        todo!("For now, code hashes must be provided - they cannot be queried from the chain.")
     }
 }
 
-#[derive(Debug, Clone)]
+// TODO: locate these types somewhere else? rename them? don't require special types like AccountId and Coin?
+
 /// MsgExecuteContract execute a contract handle function
+#[derive(Debug, Clone)]
 pub struct MsgExecuteContractRaw<M>
 where
     M: Serialize,
@@ -817,6 +896,7 @@ where
 
     /// Native amounts of coins to send with this message
     pub sent_funds: Vec<Coin>,
+    // TODO: potentially add a code_hash field here
 }
 
 impl<M: Serialize> From<MsgExecuteContractRaw<M>> for MsgExecuteContract {
@@ -824,8 +904,128 @@ impl<M: Serialize> From<MsgExecuteContractRaw<M>> for MsgExecuteContract {
         Self {
             sender: value.sender,
             contract: value.contract,
+            // NOTE: The 'msg' field is supposed to be encrypted bytes,
+            // but since it's just a Vec<u8>, it can be anything.
             msg: serde_json::to_vec(&value.msg).unwrap(),
             sent_funds: value.sent_funds,
         }
     }
+}
+
+/// MsgInstantiateContract initialise a contract from some stored code
+#[derive(Debug, Clone)]
+pub struct MsgInstantiateContractRaw<M: Serialize> {
+    /// Sender is the that actor that signed the messages
+    pub sender: AccountId,
+    /// Admin is an optional address that can execute migrations
+    pub admin: Option<String>,
+    /// The code id of the stored contract code
+    pub code_id: u64,
+    /// The label to give this contract instance
+    pub label: String,
+    /// The initialisation message to pass to the contract init method
+    pub init_msg: M,
+}
+
+impl<M: Serialize> From<MsgInstantiateContractRaw<M>> for MsgInstantiateContract {
+    fn from(msg: MsgInstantiateContractRaw<M>) -> Self {
+        Self {
+            sender: msg.sender,
+            admin: msg.admin,
+            code_id: msg.code_id,
+            label: msg.label,
+            // NOTE: The 'init_msg' field is supposed to be encrypted bytes,
+            // but since it's just a Vec<u8>, it can be anything.
+            init_msg: serde_json::to_vec(&msg.init_msg).unwrap(),
+        }
+    }
+}
+
+/// MsgMigrateContract runs a code upgrade/ downgrade for a smart contract
+#[derive(Clone, Debug)]
+pub struct MsgMigrateContractRaw<M: Serialize> {
+    /// Sender is the that actor that signed the messages
+    pub sender: AccountId,
+
+    /// Contract is the address of the smart contract
+    pub contract: AccountId,
+
+    /// CodeID references the new WASM code
+    pub code_id: u64,
+
+    /// Msg json encoded message to be passed to the contract on migration
+    pub msg: M,
+}
+
+impl<M: Serialize> From<MsgMigrateContractRaw<M>> for MsgMigrateContract {
+    fn from(msg: MsgMigrateContractRaw<M>) -> Self {
+        Self {
+            sender: msg.sender,
+            contract: msg.contract,
+            code_id: msg.code_id,
+            // NOTE: The 'msg' field is supposed to be encrypted bytes,
+            // but since it's just a Vec<u8>, it can be anything.
+            msg: serde_json::to_vec(&msg.msg).unwrap(),
+        }
+    }
+}
+
+// TODO: move to some other module
+
+pub trait EncryptedMsg: Msg {
+    fn is_plaintext(&self) -> Result<(), Error>;
+}
+
+impl EncryptedMsg for MsgExecuteContract {
+    fn is_plaintext(&self) -> Result<(), Error> {
+        match serde_json::from_slice::<serde_json::Value>(self.msg.as_ref()) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::custom("you need to encrypt the message first!")),
+        }
+    }
+}
+
+impl EncryptedMsg for MsgInstantiateContract {
+    fn is_plaintext(&self) -> Result<(), Error> {
+        match serde_json::from_slice::<serde_json::Value>(self.init_msg.as_ref()) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(crate::Error::custom(
+                "you need to encrypt the message first!",
+            )),
+        }
+    }
+}
+
+impl EncryptedMsg for MsgMigrateContract {
+    fn is_plaintext(&self) -> Result<(), Error> {
+        match serde_json::from_slice::<serde_json::Value>(self.msg.as_ref()) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(crate::Error::custom(
+                "you need to encrypt the message first!",
+            )),
+        }
+    }
+}
+
+// TODO: create a utils/helper module for things like this:
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::JsFuture;
+#[cfg(target_arch = "wasm32")]
+use web_sys::window;
+
+// Helper function to create a sleep/delay in wasm32
+#[cfg(target_arch = "wasm32")]
+async fn sleep(duration: Duration) {
+    let window = window().expect("no global `window` exists");
+    let promise = window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(
+            &wasm_bindgen::closure::Closure::wrap(Box::new(|| {}) as Box<dyn Fn()>).into_js_value(),
+            duration.as_millis() as i32,
+        )
+        .expect("should register `setTimeout` OK");
+
+    JsFuture::from(promise).await.unwrap();
 }

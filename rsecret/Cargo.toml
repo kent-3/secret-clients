@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # general
-tracing = "0.1.40" 
+tracing = "0.1.40"
 async-trait = "0.1.81"
 base64 = "0.22.1"
 hex = "0.4.3"
@@ -16,6 +16,7 @@ serde_json = { version = "1.0.127" }
 prost = "0.13.1"
 derive_more = { version = "1.0.0-beta", default-features = false, features = ["from"] }
 nanorand = { version = "0.7.0", features = ["getrandom", "zeroize"] }
+tokio = { version = "1.39.3", features = ["time"] }
 
 # crypto
 hkdf = "0.12.4"
@@ -34,7 +35,7 @@ thiserror = "1.0.63"
 tonic = { version = "0.12.2", features = ["tls", "tls-webpki-roots", "transport"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tonic = { version = "0.12.2", default-features = false, features = ["codegen","prost"] }
+tonic = { version = "0.12.2", default-features = false, features = ["codegen", "prost"] }
 tonic-web-wasm-client = "0.6.0"
 getrandom = { version = "0.2.15", features = ["js"] }
 
@@ -45,7 +46,7 @@ color-eyre = "0.6.3"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.43"
-web-sys = { version = "0.3.70", features = ["console"]}
+web-sys = { version = "0.3.70", features = ["console"] }
 
 
 [[example]]
