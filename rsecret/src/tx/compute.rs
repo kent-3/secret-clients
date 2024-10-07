@@ -410,31 +410,93 @@ where
         let hash = hasher.finalize();
 
         let tx = TxPb::decode(tx_bytes.as_ref())?;
-        let txhash = hex::encode(hash).to_uppercase();
+        let tx_hash = hex::encode(hash).to_uppercase();
 
         if !wait_for_commit && mode == BroadcastMode::Block {
             mode = BroadcastMode::Sync
         }
 
-        if mode == BroadcastMode::Block {
-            let wait_for_commit = true;
-            let is_broadcast_timed_out = false;
+        let mut tx_service = self.inner.clone();
 
-            let request = BroadcastTxRequest {
-                tx_bytes,
-                mode: mode.into(),
-            };
+        match mode {
+            mode @ BroadcastMode::Block => {
+                let wait_for_commit = true;
+                let mut is_broadcast_timed_out = false;
 
-            let mut tx_service = self.inner.clone();
-            let BroadcastTxResponse { tx_response } =
-                tx_service.broadcast_tx(request).await?.into_inner();
+                let request = BroadcastTxRequest {
+                    tx_bytes,
+                    mode: mode.into(),
+                };
 
-            let mut tx_response: TxResponseProto =
-                tx_response.ok_or("Missing field 'tx_response'")?;
-            tx_response.tx = Any::from_msg(&tx).ok();
+                let response = tx_service.broadcast_tx(request).await;
 
-            let tx_response: TxResponse = self.decode_tx_response(tx_response, None)?;
-        }
+                let mut tx_response: TxResponseProto;
+
+                match response {
+                    Ok(result) => {
+                        tx_response = result
+                            .into_inner()
+                            .tx_response
+                            .ok_or("Missing field 'tx_response'")?
+                    }
+                    Err(status) => {
+                        let error_message = status.to_string();
+                        if error_message
+                            .to_lowercase()
+                            .contains("timed out waiting for tx to be included in a block")
+                        {
+                            is_broadcast_timed_out = true;
+                        }
+                        let message = format!(
+                            "Failed to broadcast transaction ID {tx_hash}: {error_message}"
+                        );
+                        return Err(Error::custom(message));
+                    }
+                }
+
+                if !is_broadcast_timed_out {
+                    tx_response.tx = Any::from_msg(&tx).ok();
+
+                    let tx_response: TxResponse = self.decode_tx_response(tx_response, None)?;
+
+                    return Ok(tx_response);
+                }
+            }
+            mode @ BroadcastMode::Sync => {
+                let request = BroadcastTxRequest {
+                    tx_bytes,
+                    mode: mode.into(),
+                };
+                let tx_response = tx_service
+                    .broadcast_tx(request)
+                    .await?
+                    .into_inner()
+                    .tx_response
+                    .ok_or("Missing field 'tx_response'")?;
+
+                if tx_response.code != 0 {
+                    let message = format!(
+                        "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
+                        tx_response.code, tx_response.codespace, tx_response.raw_log
+                    );
+                    return Err(Error::custom(message));
+                }
+            }
+            mode @ BroadcastMode::Async => {
+                let request = BroadcastTxRequest {
+                    tx_bytes,
+                    mode: mode.into(),
+                };
+
+                let tx_response = tx_service
+                    .broadcast_tx(request)
+                    .await?
+                    .into_inner()
+                    .tx_response
+                    .ok_or("Missing field 'tx_response'")?;
+            }
+            BroadcastMode::Unspecified => return Err(Error::custom("Unspecified BroadcastMode")),
+        };
 
         todo!()
     }
