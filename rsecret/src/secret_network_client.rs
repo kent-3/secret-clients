@@ -1018,14 +1018,14 @@ pub trait TxDecoder {
         tx_response: TxResponseProto,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
+        debug!("decoding tx_response...");
         let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
 
-        if let Some(any) = tx_response.tx {
-            debug!("processing tx...");
-            let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
-        };
+        let any = tx_response
+            .tx
+            .ok_or("'tx' field is required to decode_tx_response")?;
+        let tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
-        debug!("processing data...");
         let mut data =
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
@@ -1041,7 +1041,6 @@ pub trait TxDecoder {
         // TODO:
         let ibc_responses = None;
 
-        debug!("processing events...");
         let events = tx_response
             .events
             .into_iter()
@@ -1060,7 +1059,7 @@ pub trait TxDecoder {
             info: tx_response.info,
             gas_wanted: tx_response.gas_wanted as u64,
             gas_used: tx_response.gas_used as u64,
-            tx: todo!("'tx' is not optional in TxResponse, but is in TxResponseProto..."),
+            tx,
             timestamp: tx_response.timestamp,
             events,
         })

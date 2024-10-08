@@ -1698,6 +1698,7 @@ dependencies = [
  "tonic-web-wasm-client",
  "tracing",
  "tracing-subscriber",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
  "x25519-dalek",

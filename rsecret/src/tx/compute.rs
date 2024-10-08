@@ -23,8 +23,8 @@ use secretrs::{
         cosmos::{
             base::abci::v1beta1::TxResponse as TxResponseProto,
             tx::v1beta1::{
-                BroadcastMode, BroadcastTxRequest, BroadcastTxResponse, GetTxRequest,
-                GetTxResponse, Tx as TxPb, TxRaw,
+                AuthInfo as AuthInfoProto, BroadcastMode, BroadcastTxRequest, BroadcastTxResponse,
+                GetTxRequest, GetTxResponse, Tx as TxProto, TxBody as TxBodyProto, TxRaw,
             },
         },
         secret::compute::v1beta1::{
@@ -51,7 +51,7 @@ use tonic::{
     client::GrpcService,
     codegen::{Body, Bytes, StdError},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::sleep;
@@ -120,56 +120,67 @@ where
             // Check if the message needs decryption
             match any.type_url.as_str() {
                 "/secret.compute.v1beta1.MsgInstantiateContract" => {
-                    debug!("found an encrypted message!");
-                    // let mut msg = any.to_msg::<MsgInstantiateContract>()?;
                     let mut msg = MsgInstantiateContract::from_any(any)?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
                     if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
-                        // we only insert the nonce in the hashmap if we were able to use it!
+                        let json_slice = &plaintext[64..];
+                        let json_str = std::str::from_utf8(json_slice).unwrap();
+
+                        debug!("Decrypted MsgInstantiateContract at index {msg_index}.");
+
+                        msg.init_msg = serde_json::to_vec(json_str)?;
                         nonces.insert(msg_index as u16, nonce);
-                        msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
 
                         *any = msg.into_any()?
+                    } else {
+                        info!("Unable to decrypt MsgInstantiateContract at index {msg_index}.");
                     }
-                    debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgExecuteContract" => {
-                    debug!("found an encrypted message!");
                     let mut msg = MsgExecuteContract::from_any(any)?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
                     if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
+                        let json_slice = &plaintext[64..];
+                        let json_str = std::str::from_utf8(json_slice).unwrap();
+                        msg.msg = serde_json::to_vec(json_str)?;
                         nonces.insert(msg_index as u16, nonce);
-                        msg.msg = serde_json::from_slice(&plaintext[64..])?;
+
+                        debug!("Decrypted MsgExecuteContract at index {msg_index}.");
 
                         *any = msg.into_any()?
+                    } else {
+                        info!("Unable to decrypt MsgExecuteContract at index {msg_index}.");
                     }
-                    debug!("unable to decrypt... oh well!");
                 }
                 "/secret.compute.v1beta1.MsgMigrateContract" => {
-                    debug!("found an encrypted message!");
                     let mut msg = MsgMigrateContract::from_any(any)?;
                     let mut nonce = [0u8; 32];
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
                     if let Ok(plaintext) = self.decrypt(&nonce, ciphertext).await {
+                        let json_slice = &plaintext[64..];
+                        let json_str = std::str::from_utf8(json_slice).unwrap();
+                        msg.msg = serde_json::to_vec(json_str)?;
                         nonces.insert(msg_index as u16, nonce);
-                        msg.msg = serde_json::from_slice(&plaintext[64..])?;
+
+                        debug!("Decrypted MsgMigrateContract at index {msg_index}.");
 
                         *any = msg.into_any()?
+                    } else {
+                        info!("Unable to decrypt MsgMigrateContract at index {msg_index}.");
                     }
-                    debug!("unable to decrypt... oh well!");
                 }
                 // If the message is not of type MsgInstantiateContract, MsgExecuteContract, or
                 // MsgMigrateContract, leave it unchanged. It doesn't require any decryption.
                 _ => {
-                    debug!("no encrypted messages here!");
+                    debug!("No encrypted messages here!");
                 }
             };
         }
@@ -189,7 +200,6 @@ where
                     // if the message was a MsgInstantiateContract, then the data is in the form of
                     // MsgInstantiateContractResponse. same goes for Execute and Migrate.
                     "/secret.compute.v1beta1.MsgInstantiateContract" => {
-                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
@@ -198,12 +208,15 @@ where
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
+                            debug!("Decrypted MsgInstantiateContract at index {msg_index}.");
+                            debug!("{}", std::str::from_utf8(&data).unwrap());
+
                             *msg_data = MsgData { msg_type, data }
+                        } else {
+                            info!("Unable to decrypt MsgInstantiateContract at index {msg_index}.");
                         }
-                        debug!("unable to decrypt... oh well!");
                     }
                     "/secret.compute.v1beta1.MsgExecuteContract" => {
-                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
@@ -211,21 +224,28 @@ where
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
+                            debug!("Decrypted MsgExecuteContract at index {msg_index}.");
+                            debug!("{}", std::str::from_utf8(&data).unwrap());
+
                             *msg_data = MsgData { msg_type, data }
+                        } else {
+                            info!("Unable to decrypt MsgExecuteContract at index {msg_index}.");
                         }
-                        debug!("unable to decrypt... oh well!");
                     }
                     "/secret.compute.v1beta1.MsgMigrateContract" => {
-                        debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
                         if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
+                            debug!("Decrypted MsgMigrateContract at index {msg_index}.");
+                            debug!("{}", std::str::from_utf8(&data).unwrap());
+
                             *msg_data = MsgData { msg_type, data }
+                        } else {
+                            info!("Unable to decrypt MsgMigrateContract at index {msg_index}.");
                         }
-                        debug!("unable to decrypt... oh well!");
                     }
                     // If the message is not of type MsgInstantiateContract MsgExecuteContract,
                     // or MsgMigrateContract, leave it unchanged. It doesn't require any decryption.
@@ -237,7 +257,6 @@ where
         }
 
         // TODO: decrypt the logs
-        // TODO: decrypt the events
 
         Ok(tx_response)
 
@@ -431,18 +450,27 @@ where
         wait_for_commit: bool,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
-        // let start = SystemTime::now()
-        //     .duration_since(UNIX_EPOCH)
-        //     .expect("Time went backwards")
-        //     .as_millis();
+        #[cfg(not(target_arch = "wasm32"))]
         let start = Instant::now();
+        #[cfg(target_arch = "wasm32")]
+        let start = Date::now();
 
         let mut hasher = Sha256::new();
         hasher.update(&tx_bytes);
         let hash = hasher.finalize();
-
-        let tx = TxPb::decode(tx_bytes.as_ref())?;
         let tx_hash = hex::encode(hash).to_uppercase();
+
+        debug!("TX_HASH: {tx_hash}");
+
+        let tx = TxRaw::decode(tx_bytes.as_ref())?;
+        let body = TxBodyProto::decode(tx.body_bytes.as_ref())?;
+        let auth_info = AuthInfoProto::decode(tx.auth_info_bytes.as_ref())?;
+
+        let tx = TxProto {
+            body: Some(body),
+            auth_info: Some(auth_info),
+            signatures: tx.signatures,
+        };
 
         if !wait_for_commit && mode == BroadcastMode::Block {
             mode = BroadcastMode::Sync
@@ -450,7 +478,7 @@ where
 
         let mut tx_service = self.inner.clone();
 
-        let tx_response: Result<TxResponse> = match mode {
+        let mut tx_response: TxResponse = match mode {
             mode @ BroadcastMode::Block => {
                 let wait_for_commit = true;
                 let mut is_broadcast_timed_out = false;
@@ -512,7 +540,7 @@ where
                     // add our tx to the response to guarantee it's there for the decoding step
                     tx_response.tx = Any::from_msg(&tx).ok();
 
-                    return self.decode_tx_response(tx_response, ibc_tx_options);
+                    self.decode_tx_response(tx_response, ibc_tx_options.clone())
                 }
             }
             mode @ BroadcastMode::Async => {
@@ -538,25 +566,34 @@ where
                     // add our tx to the response to guarantee it's there for the decoding step
                     tx_response.tx = Any::from_msg(&tx).ok();
 
-                    return self.decode_tx_response(tx_response, ibc_tx_options);
+                    self.decode_tx_response(tx_response, ibc_tx_options.clone())
                 }
             }
             BroadcastMode::Unspecified => return Err(Error::custom("Unspecified BroadcastMode")),
-        };
+        }?;
 
         if !wait_for_commit {
-            return tx_response;
+            self.decrypt_tx_response(&mut tx_response).await?;
+            return Ok(tx_response);
         }
 
         // sleep first because there's no point in checking right after broadcasting
         sleep(Duration::from_millis(check_interval_ms as u64 / 2)).await;
 
         loop {
-            if let Some(tx_response) = self.get_tx(&tx_hash, ibc_tx_options.clone()).await? {
+            debug!("Checking for Tx...");
+            if let Ok(Some(mut tx_response)) = self.get_tx(&tx_hash, ibc_tx_options.clone()).await {
+                self.decrypt_tx_response(&mut tx_response).await?;
                 return Ok(tx_response);
             }
 
-            if start.elapsed().as_millis() > timeout_ms as u128 {
+            #[cfg(not(target_arch = "wasm32"))]
+            let elapsed = start.elapsed().as_millis() as u32;
+
+            #[cfg(target_arch = "wasm32")]
+            let elapsed = (Date::now() - start) as u32;
+
+            if elapsed > timeout_ms {
                 return Err(Error::Custom(format!(
                 "Transaction ID {} was submitted but was not yet found on the chain. You might want to check later or increase broadcast_timeout_ms from '{}'.",
                 tx_hash, timeout_ms
@@ -592,10 +629,7 @@ where
         messages: Vec<M>,
         tx_options: TxOptions,
     ) -> Result<TxResponse> {
-        let tx_bytes = self
-            .prepare_and_sign(messages, tx_options.clone())
-            .await?
-            .to_bytes()?;
+        let tx_bytes = self.prepare_and_sign(messages, tx_options.clone()).await?;
 
         self.broadcast_tx(
             tx_bytes,
@@ -668,17 +702,18 @@ where
         let signer_address = self.wallet_address.as_ref();
 
         // All this to make sure the account matches the one given when the client was created.
+        debug!("Verifying the signer account matches the client account...");
         let account_from_signer: AccountData = signer
             .get_accounts()
             .await
-            .map_err(crate::Error::custom)
+            .map_err(Error::custom)
             .and_then(|accounts| {
-                accounts
-                    .iter()
-                    .find(|account| account.address == signer_address)
-                    .cloned()
-                    .ok_or_else(|| crate::Error::custom("Failed to retrieve account from signer"))
-            })?;
+            accounts
+                .iter()
+                .find(|account| account.address == signer_address)
+                .cloned()
+                .ok_or(Error::custom("Failed to retrieve account from signer"))
+        })?;
 
         let signer_data = if let Some(signer_data) = explicit_signer_data {
             signer_data
@@ -686,6 +721,7 @@ where
             let request = QueryAccountRequest {
                 address: signer_address.to_string(),
             };
+            debug!("Getting account data from chain...");
             let response = self.auth.clone().account(request).await?;
 
             let (metadata, response, _) = response.into_parts();
@@ -711,6 +747,7 @@ where
             signer_data
         };
 
+        debug!("Getting sign mode...");
         match signer.get_sign_mode().await? {
             SignMode::Direct => {
                 self.sign_direct(account_from_signer, messages, fee, memo, signer_data)
@@ -732,6 +769,8 @@ where
         memo: String,
         signer_data: SignerData,
     ) -> Result<TxRaw> {
+        debug!("Signing Amino...");
+
         // TODO: avoid having to make this check all over the place?
         let sign_mode = self.wallet.get_sign_mode().await?;
 
@@ -752,12 +791,8 @@ where
             memo,
         };
 
-        let response: AminoSignResponse<S> =
+        let AminoSignResponse { signed, signature } =
             self.wallet.sign_amino(&account.address, sign_doc).await?;
-        debug!("{:?}", serde_json::to_string(&response));
-
-        let signed: StdSignDoc<S> = response.signed;
-        let signature: StdSignature = response.signature;
         let signature_bytes = BASE64_STANDARD.decode(signature.signature)?;
 
         let messages: Vec<Any> = messages
@@ -852,19 +887,14 @@ where
             signer_data.account_number,
         )?;
 
-        let response: DirectSignResponse = self
-            .wallet
-            .sign_direct(&account.address, sign_doc)
-            .await
-            .map_err(Error::custom)?;
-
-        let signed = response.signed;
-        let signature = BASE64_STANDARD.decode(response.signature.signature)?;
+        let DirectSignResponse { signed, signature } =
+            self.wallet.sign_direct(&account.address, sign_doc).await?;
+        let signature_bytes = BASE64_STANDARD.decode(signature.signature)?;
 
         let signed_tx_raw = TxRaw {
             body_bytes: signed.body_bytes,
             auth_info_bytes: signed.auth_info_bytes,
-            signatures: vec![signature],
+            signatures: vec![signature_bytes],
         };
 
         Ok(signed_tx_raw)
@@ -1010,22 +1040,35 @@ impl EncryptedMsg for MsgMigrateContract {
 // TODO: create a utils/helper module for things like this:
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::JsFuture;
 #[cfg(target_arch = "wasm32")]
-use web_sys::window;
+use web_sys::{
+    js_sys::{Date, Function, Promise},
+    wasm_bindgen::prelude::*,
+    window,
+};
 
 // Helper function to create a sleep/delay in wasm32
 #[cfg(target_arch = "wasm32")]
 async fn sleep(duration: Duration) {
-    let window = window().expect("no global `window` exists");
-    let promise = window
-        .set_timeout_with_callback_and_timeout_and_arguments_0(
-            &wasm_bindgen::closure::Closure::wrap(Box::new(|| {}) as Box<dyn Fn()>).into_js_value(),
-            duration.as_millis() as i32,
-        )
-        .expect("should register `setTimeout` OK");
+    // Create a JavaScript promise that resolves after the timeout
+    let promise = Promise::new(&mut |resolve: Function, _reject| {
+        let closure = Closure::wrap(Box::new(move || {
+            // Call the resolve function
+            resolve.call1(&JsValue::null(), &JsValue::null()).unwrap(); // Resolve the promise
+        }) as Box<dyn Fn()>);
 
+        window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().unchecked_ref::<Function>(),
+                duration.as_millis() as i32,
+            )
+            .unwrap();
+
+        closure.forget(); // Avoid dropping the closure
+    });
+
+    // Wait for the promise to resolve (i.e., after the timeout)
     JsFuture::from(promise).await.unwrap();
 }
