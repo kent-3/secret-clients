@@ -17,8 +17,6 @@ Situation:
 
 # Misc
 
-1. rename EncryptionUtils to SecretUtils
-2. rename Enigma2 to TxEncryptor or something
-3. break up the secret_network_client module
-4. don't have a 'traits' module; that's dumb
-5. make a trait for 'TxProcessor', that can have default implementation for anything with an inner TxServiceClient to be able to prepare and sign and broadcast transactions. The ComputeServiceClient could overload the tx decoding methods to include decryption.
+- break up the secret_network_client module
+- don't have a 'traits' module; that's dumb
+- make a trait for 'TxProcessor', that can have default implementation for anything with an inner TxServiceClient to be able to prepare and sign and broadcast transactions. The ComputeServiceClient could overload the tx decoding methods to include decryption.

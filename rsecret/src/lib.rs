@@ -13,8 +13,7 @@
 pub mod account;
 mod error;
 pub mod query;
-pub mod secret_network_client;
-pub mod traits;
+pub mod secret_client;
 pub mod wallet;
 
 mod bonus;
@@ -25,7 +24,7 @@ pub(crate) mod macros;
 pub mod tx;
 
 pub use error::{Error, Result};
-pub use secret_network_client::{CreateClientOptions, SecretNetworkClient, TxOptions};
+pub use secret_client::{CreateClientOptions, SecretNetworkClient, TxOptions};
 
 // TODO: create a "mini" SecretNetworkClient for the most common types of queries and txs
 // TODO: create a "read-only" SecretNetworkClient for queries

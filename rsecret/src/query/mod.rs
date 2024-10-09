@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions, Error, Result};
+use crate::{secret_client::CreateQuerierOptions, CreateClientOptions, Error, Result};
 use secretrs::utils::encryption::SecretUtils;
 use std::sync::Arc;
 use tonic::{

@@ -1,5 +1,10 @@
 #![allow(unused)]
 
+pub mod to_amino;
+pub use to_amino::ToAmino;
+
+pub mod msg;
+
 use crate::{
     query::Querier,
     tx::TxSender,
@@ -978,7 +983,7 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
 use secretrs::utils::encryption::SecretMsg;
 
 #[async_trait(?Send)]
-pub trait Enigma2 {
+pub trait TxDecrypter {
     async fn encrypt<M: Serialize + Send + Sync>(
         &self,
         contract_code_hash: &str,

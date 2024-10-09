@@ -33,7 +33,7 @@ pub use slashing::SlashingServiceClient;
 pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
-use crate::secret_network_client::CreateTxSenderOptions;
+use crate::secret_client::CreateTxSenderOptions;
 use crate::wallet::Signer;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;

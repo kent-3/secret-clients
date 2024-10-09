@@ -1,11 +1,10 @@
 use super::{Error, Result};
 use crate::{
     query::auth::{AuthQuerier, BaseAccount, QueryAccountRequest},
-    secret_network_client::{
-        CreateClientOptions, CreateTxSenderOptions, Enigma2, IbcTxOptions, SignerData, TxDecoder,
-        TxOptions, TxResponse,
+    secret_client::{
+        CreateClientOptions, CreateTxSenderOptions, IbcTxOptions, SignerData, ToAmino, TxDecoder,
+        TxDecrypter, TxOptions, TxResponse,
     },
-    traits::{is_plaintext, ToAmino},
     wallet::{
         wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc, StdSignature},
         AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
@@ -81,7 +80,7 @@ where
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
 #[async_trait(?Send)]
-impl<T, U, V> Enigma2 for ComputeServiceClient<T, U, V>
+impl<T, U, V> TxDecrypter for ComputeServiceClient<T, U, V>
 where
     T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,

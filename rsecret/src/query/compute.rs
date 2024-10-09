@@ -1,5 +1,5 @@
 use super::{Error, Result};
-use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions};
+use crate::{secret_client::CreateQuerierOptions, CreateClientOptions};
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use regex::Regex;
