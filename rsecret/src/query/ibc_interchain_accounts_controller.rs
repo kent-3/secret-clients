@@ -1,9 +1,9 @@
 use crate::{Error, Result};
+use ibc_proto::ibc::applications::interchain_accounts::controller::v1::*;
 use prost::Message;
 pub use secretrs::{
     grpc_clients::IbcInterchainAccountsControllerQueryClient,
     proto::cosmos::base::query::v1beta1::{PageRequest, PageResponse},
-    proto::ibc::applications::interchain_accounts::controller::v1::*,
 };
 use tonic::{
     body::BoxBody,

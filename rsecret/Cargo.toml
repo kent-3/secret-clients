@@ -26,6 +26,7 @@ x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 # blockchain
 secretrs = { version = "0.1.1" }
+ibc-proto = "0.49.0"
 bip39 = "2.0.0"
 
 # errors
