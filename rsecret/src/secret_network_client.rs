@@ -43,8 +43,8 @@ use secretrs::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
         SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
-    utils::encryption::Enigma,
-    Any, Coin, EncryptionUtils,
+    utils::encryption::{EnigmaUtils, SecretUtils},
+    Any, Coin,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
@@ -68,13 +68,13 @@ where
     wallet: Option<Arc<S>>,
     wallet_address: Option<String>,
     encryption_seed: Option<[u8; 32]>,
-    encryption_utils: Option<EncryptionUtils>,
+    enigma_utils: Option<EnigmaUtils>,
 }
 
 #[derive(Debug)]
 pub struct CreateClientOptions<U, V>
 where
-    U: Enigma,
+    U: SecretUtils,
     V: Signer,
 {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
@@ -87,15 +87,15 @@ where
     /// The specific account address in the wallet that is permitted to sign transactions & permits.
     pub wallet_address: Option<String>,
     /// Optional encryption seed that will allow transaction decryption at a later time.
-    /// Ignored if `encryption_utils` is supplied. Must be 32 bytes.
+    /// Ignored if `enigma_utils` is supplied. Must be 32 bytes.
     pub encryption_seed: Option<[u8; 32]>,
     /// Optional field to override the default encryption utilities implementation.
-    pub encryption_utils: Option<U>,
+    pub enigma_utils: Option<U>,
 }
 
 impl<U, V> Default for CreateClientOptions<U, V>
 where
-    U: Enigma,
+    U: SecretUtils,
     V: Signer,
 {
     fn default() -> Self {
@@ -105,14 +105,14 @@ where
             wallet: None,
             wallet_address: None,
             encryption_seed: None,
-            encryption_utils: None,
+            enigma_utils: None,
         }
     }
 }
 
 impl<U, V> CreateClientOptions<U, V>
 where
-    U: Enigma,
+    U: SecretUtils,
     V: Signer,
 {
     pub fn read_only(url: &'static str, chain_id: &'static str) -> Self {
@@ -124,26 +124,26 @@ where
     }
 }
 
-// NOTE: these technically don't require the chain_id, because the EncryptionUtils are provided,
+// NOTE: these technically don't require the chain_id, because the EnigmaUtils are provided,
 // but I'll leave it here just in case.
 
 // TODO: bad design when a Channel or Client is provided (they already have a URL)
 #[derive(Debug, Clone)]
-pub struct CreateQuerierOptions<T: Enigma> {
+pub struct CreateQuerierOptions<T: SecretUtils> {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub encryption_utils: Arc<T>,
+    pub enigma_utils: Arc<T>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateTxSenderOptions<T, U>
 where
-    T: Enigma,
+    T: SecretUtils,
     U: Signer,
 {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub encryption_utils: Arc<T>,
+    pub enigma_utils: Arc<T>,
     pub wallet: Arc<U>,
     pub wallet_address: Arc<str>,
 }
@@ -326,7 +326,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     S: Signer + Sync,
 {
 }
@@ -340,12 +340,12 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     pub url: String,
     pub chain_id: String,
-    pub encryption_utils: Arc<U>,
+    pub enigma_utils: Arc<U>,
     pub query: Querier<T, U>,
     pub tx: TxSender<T, U, V>,
     pub wallet: Arc<V>,
@@ -355,7 +355,9 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma + Sync, V: Signer + Sync> SecretNetworkClient<::tonic::transport::Channel, U, V> {
+impl<U: SecretUtils + Sync, V: Signer + Sync>
+    SecretNetworkClient<::tonic::transport::Channel, U, V>
+{
     pub async fn connect(options: CreateClientOptions<U, V>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
@@ -375,32 +377,32 @@ impl<U: Enigma + Sync, V: Signer + Sync> SecretNetworkClient<::tonic::transport:
         // FIXME: bad API. I should be able to create a read-only client if no signer is given.
         let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
-        let encryption_utils = Arc::new(
+        let enigma_utils = Arc::new(
             options
-                .encryption_utils
-                .expect("EncryptionUtils should be provided"),
+                .enigma_utils
+                .expect("EnigmaUtils should be provided"),
         );
 
-        // // if no EncryptionUtils is provided, one is created
-        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
         //     // if no seed is provided, one is randomly generated
         //     // TODO: query the chain for the enclave IO pubkey
-        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
         // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
         //     chain_id: options.chain_id,
-        //     encryption_utils: encryption_utils.clone(),
+        //     enigma_utils: enigma_utils.clone(),
         // };
-        let query = Querier::new(channel.clone(), encryption_utils.clone());
+        let query = Querier::new(channel.clone(), enigma_utils.clone());
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
-            encryption_utils: encryption_utils.clone(),
+            enigma_utils: enigma_utils.clone(),
         };
         let tx = TxSender::new(channel.clone(), tx_client_options);
 
@@ -411,7 +413,7 @@ impl<U: Enigma + Sync, V: Signer + Sync> SecretNetworkClient<::tonic::transport:
             wallet,
             address: options.wallet_address.unwrap_or_default(),
             chain_id: options.chain_id.into(),
-            encryption_utils,
+            enigma_utils,
         })
     }
 
@@ -423,7 +425,7 @@ impl<U: Enigma + Sync, V: Signer + Sync> SecretNetworkClient<::tonic::transport:
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
+impl<U: SecretUtils + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
     pub fn new_wallet(
         channel: ::tonic::transport::Channel,
         options: CreateClientOptions<U, Wallet>,
@@ -433,32 +435,28 @@ impl<U: Enigma + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Walle
             Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
         }));
 
-        let encryption_utils = Arc::new(
-            options
-                .encryption_utils
-                .expect("must provide encryption_utils"),
-        );
+        let enigma_utils = Arc::new(options.enigma_utils.expect("must provide enigma_utils"));
 
-        // // if no EncryptionUtils is provided, one is created
-        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
         //     // if no seed is provided, one is randomly generated
         //     // TODO: query the chain for the enclave IO pubkey
-        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
         // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
         //     chain_id: options.chain_id,
-        //     encryption_utils: encryption_utils.clone(),
+        //     enigma_utils: enigma_utils.clone(),
         // };
-        let query = Querier::new(channel.clone(), encryption_utils.clone());
+        let query = Querier::new(channel.clone(), enigma_utils.clone());
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
-            encryption_utils: encryption_utils.clone(),
+            enigma_utils: enigma_utils.clone(),
         };
         let tx = TxSender::new(channel.clone(), tx_client_options);
 
@@ -469,7 +467,7 @@ impl<U: Enigma + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Walle
             wallet,
             address: options.wallet_address.unwrap_or_default(),
             chain_id: options.chain_id.into(),
-            encryption_utils,
+            enigma_utils,
         })
     }
 
@@ -480,7 +478,7 @@ impl<U: Enigma + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Walle
     // }
 }
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma + Sync, V: Signer + Sync>
+impl<U: SecretUtils + Sync, V: Signer + Sync>
     SecretNetworkClient<::tonic_web_wasm_client::Client, U, V>
 {
     pub fn new(
@@ -494,30 +492,26 @@ impl<U: Enigma + Sync, V: Signer + Sync>
 
         let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
-        let encryption_utils = Arc::new(
-            options
-                .encryption_utils
-                .expect("must provide encryption_utils"),
-        );
+        let enigma_utils = Arc::new(options.enigma_utils.expect("must provide enigma_utils"));
 
-        // // if no EncryptionUtils is provided, one is created
-        // let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
         //     // if no seed is provided, one is randomly generated
         //     // TODO: query the chain for the enclave IO pubkey
-        //     EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
         // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
         //     chain_id: options.chain_id,
-        //     encryption_utils: encryption_utils.clone(),
+        //     enigma_utils: enigma_utils.clone(),
         // };
-        let query = Querier::new(client.clone(), encryption_utils.clone());
+        let query = Querier::new(client.clone(), enigma_utils.clone());
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
-            encryption_utils: encryption_utils.clone(),
+            enigma_utils: enigma_utils.clone(),
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
         };
@@ -530,7 +524,7 @@ impl<U: Enigma + Sync, V: Signer + Sync>
             wallet,
             address: options.wallet_address.unwrap_or_default().into(),
             chain_id: options.chain_id.into(),
-            encryption_utils,
+            enigma_utils,
         });
     }
 }
@@ -541,7 +535,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
@@ -676,7 +670,7 @@ where
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
@@ -692,7 +686,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -707,7 +701,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext).await {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -746,8 +740,7 @@ where
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
-                        {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
@@ -761,8 +754,7 @@ where
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
-                        {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -774,8 +766,7 @@ where
                         debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data).await
-                        {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -1175,7 +1166,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
 }

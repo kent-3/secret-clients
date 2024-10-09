@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions, Error, Result};
-use secretrs::{utils::encryption::Enigma, EncryptionUtils};
+use secretrs::utils::encryption::SecretUtils;
 use std::sync::Arc;
 use tonic::{
     body::BoxBody,
@@ -72,7 +72,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma,
+    U: SecretUtils,
 {
     pub auth: AuthQuerier<T>,
     pub authz: AuthzQuerier<T>,
@@ -110,7 +110,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
 {
     pub auth: AuthQuerier<T>,
     pub bank: BankQuerier<T>,
@@ -120,18 +120,18 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma + Sync> MiniQuerier<::tonic::transport::Channel, U> {
+impl<U: SecretUtils + Sync> MiniQuerier<::tonic::transport::Channel, U> {
     pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.enigma_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: Arc<U>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(channel.clone(), enigma_utils);
         let tendermint = TendermintQuerier::new(channel.clone());
         let tx = TxQuerier::new(channel.clone());
 
@@ -146,19 +146,19 @@ impl<U: Enigma + Sync> MiniQuerier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma + Sync> Querier<::tonic::transport::Channel, U> {
+impl<U: SecretUtils + Sync> Querier<::tonic::transport::Channel, U> {
     pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.enigma_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: Arc<U>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(channel.clone(), enigma_utils);
         let distribution = DistributionQuerier::new(channel.clone());
         let emergency_button = EmergencyButtonQuerier::new(channel.clone());
         let evidence = EvidenceQuerier::new(channel.clone());
@@ -211,11 +211,11 @@ impl<U: Enigma + Sync> Querier<::tonic::transport::Channel, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma + Sync> MiniQuerier<::tonic_web_wasm_client::Client, U> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
+impl<U: SecretUtils + Sync> MiniQuerier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(client.clone(), enigma_utils);
         let tendermint = TendermintQuerier::new(client.clone());
         let tx = TxQuerier::new(client.clone());
 
@@ -230,12 +230,12 @@ impl<U: Enigma + Sync> MiniQuerier<::tonic_web_wasm_client::Client, U> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma + Sync> Querier<::tonic_web_wasm_client::Client, U> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: Arc<U>) -> Self {
+impl<U: SecretUtils + Sync> Querier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(client.clone(), enigma_utils);
         let distribution = DistributionQuerier::new(client.clone());
         let emergency_button = EmergencyButtonQuerier::new(client.clone());
         let evidence = EvidenceQuerier::new(client.clone());

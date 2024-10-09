@@ -1,5 +1,3 @@
-use secretrs::tx::SignMode;
-
 /// Alias for a `Result` with the error type `crate::Error`.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
@@ -26,9 +24,9 @@ pub enum Error {
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Tonic(#[from] tonic::transport::Error),
-
     #[error(transparent)]
     Status(#[from] tonic::Status),
+
     #[error(transparent)]
     ProstDecode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -36,6 +34,8 @@ pub enum Error {
 
     #[error(transparent)]
     FromUtf8(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
     #[error(transparent)]
     Base64Decode(#[from] base64::DecodeError),
     #[error(transparent)]

@@ -38,7 +38,7 @@ use crate::wallet::Signer;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
-use secretrs::utils::encryption::Enigma;
+use secretrs::utils::encryption::SecretUtils;
 use tonic::{
     body::BoxBody,
     client::GrpcService,
@@ -52,7 +52,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     pub authz: AuthzServiceClient<T>,
@@ -69,7 +69,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U, V> {
+impl<U: SecretUtils + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U, V> {
     pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
@@ -107,7 +107,7 @@ impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma + Sync, V: Signer + Sync> TxSender<::tonic_web_wasm_client::Client, U, V> {
+impl<U: SecretUtils + Sync, V: Signer + Sync> TxSender<::tonic_web_wasm_client::Client, U, V> {
     pub fn new(
         client: ::tonic_web_wasm_client::Client,
         options: CreateTxSenderOptions<U, V>,
@@ -146,7 +146,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     // TODO - figure out how to support multiple messages

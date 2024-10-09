@@ -35,14 +35,14 @@ use secretrs::{
         Body as TxBody, BodyBuilder, Fee, MessageExt, ModeInfo, Msg, Raw, SignDoc, SignMode,
         SignerInfo, Tx,
     },
-    utils::encryption::{EncryptionUtils, Enigma, SecretMsg},
+    utils::encryption::{SecretMsg, SecretUtils},
     AccountId, Any, Coin,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    str::FromStr,
+    str::{from_utf8, FromStr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -63,13 +63,13 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     inner: TxServiceClient<T>,
     auth: AuthQueryClient<T>,
     chain_id: Arc<str>,
-    encryption_utils: Arc<U>,
+    enigma_utils: Arc<U>,
     wallet: Arc<V>,
     wallet_address: Arc<str>,
     code_hash_cache: HashMap<String, String>,
@@ -87,7 +87,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     async fn encrypt<M: Serialize + Send + Sync>(
@@ -95,8 +95,7 @@ where
         contract_code_hash: &str,
         msg: &M,
     ) -> Result<SecretMsg> {
-        self.encryption_utils
-            .clone()
+        self.enigma_utils
             .encrypt(contract_code_hash, msg)
             .await
             .map(|msg| SecretMsg::from(msg))
@@ -104,7 +103,7 @@ where
     }
 
     async fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
-        self.encryption_utils
+        self.enigma_utils
             .decrypt(nonce, ciphertext)
             .await
             .map_err(Into::into)
@@ -237,10 +236,10 @@ where
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
                         if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
-                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
+                            let data = BASE64_STANDARD.decode(from_utf8(&bytes)?)?;
 
                             debug!("Decrypted MsgMigrateContract at index {msg_index}.");
-                            debug!("{}", std::str::from_utf8(&data).unwrap());
+                            debug!("{}", from_utf8(&data)?);
 
                             *msg_data = MsgData { msg_type, data }
                         } else {
@@ -257,6 +256,25 @@ where
         }
 
         // TODO: decrypt the logs
+        for (msg_index, log) in tx_response.logs.iter_mut().enumerate() {
+            for event in log.events.iter_mut() {
+                for attr in event.attributes.iter_mut() {
+                    if event.r#type == "wasm" {
+                        if let Some(nonce) = nonces.get(&(msg_index as u16)) {
+                            let decrypted_key = self
+                                .decrypt(nonce, &BASE64_STANDARD.decode(&attr.key)?)
+                                .await?;
+                            let decrypted_value = self
+                                .decrypt(nonce, &BASE64_STANDARD.decode(&attr.value)?)
+                                .await?;
+
+                            attr.key = from_utf8(&decrypted_key)?.trim().to_string();
+                            attr.value = from_utf8(&decrypted_value)?.trim().to_string();
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(tx_response)
 
@@ -284,7 +302,7 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 impl<U, V> ComputeServiceClient<::tonic::transport::Channel, U, V>
 where
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
@@ -300,7 +318,7 @@ where
         let wallet = options.wallet;
         let wallet_address = options.wallet_address;
         let chain_id = options.chain_id.into();
-        let encryption_utils = options.encryption_utils;
+        let enigma_utils = options.enigma_utils;
         let code_hash_cache = HashMap::new();
 
         Self {
@@ -309,14 +327,14 @@ where
             wallet,
             wallet_address,
             chain_id,
-            encryption_utils,
+            enigma_utils,
             code_hash_cache,
         }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<U: Enigma + Sync, V: Signer + Sync>
+impl<U: SecretUtils + Sync, V: Signer + Sync>
     ComputeServiceClient<::tonic_web_wasm_client::Client, U, V>
 {
     pub fn new(
@@ -329,7 +347,7 @@ impl<U: Enigma + Sync, V: Signer + Sync>
         let wallet = options.wallet;
         let wallet_address = options.wallet_address;
         let chain_id = options.chain_id.into();
-        let encryption_utils = options.encryption_utils;
+        let enigma_utils = options.enigma_utils;
         let code_hash_cache = HashMap::new();
 
         Self {
@@ -338,7 +356,7 @@ impl<U: Enigma + Sync, V: Signer + Sync>
             wallet,
             wallet_address,
             chain_id,
-            encryption_utils,
+            enigma_utils,
             code_hash_cache,
         }
     }
@@ -350,7 +368,7 @@ where
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     V: Signer + Sync,
 {
     pub async fn store_code(&self, msg: MsgStoreCode, tx_options: TxOptions) -> Result<TxResponse> {

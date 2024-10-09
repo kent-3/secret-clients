@@ -6,7 +6,7 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
     crypto::{secp256k1::SigningKey, PublicKey},
     tx::{SignDoc, SignMode},
-    Coin, EncryptionUtils,
+    Coin,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

@@ -1,7 +1,7 @@
 use crate::{wallet::Signer, Result, SecretNetworkClient};
 use secretrs::{
     proto::cosmos::staking::v1beta1::{BondStatus, Validator},
-    utils::encryption::Enigma,
+    utils::encryption::SecretUtils,
 };
 use tracing::{debug, info};
 
@@ -12,7 +12,7 @@ where
     T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
     <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     T: Clone + Sync,
-    U: Enigma + Sync,
+    U: SecretUtils + Sync,
     S: Signer + Sync,
 {
     pub async fn all_validators(&self) -> Result<Vec<Validator>> {

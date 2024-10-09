@@ -3,7 +3,7 @@
 ```rust
 use prost::Message;
 use cosmrs::{MessageExt, Msg};
-use rsecret::{ToAmino, EncryptMe?};
+use rsecret::{ToAmino, Enigma2?};
 ```
 
 Situation:
@@ -14,10 +14,11 @@ Situation:
 - In order to support broadcasting a `Vec<impl Msg>`, each message must already be encrypted.
 - In order to encrypt messages, they need the code_hash.
 - The secretrs message types do not have a code_hash field.
-- Perhaps I can add another trait to only `MsgExecuteContract`, `MsgInstantiateContract`, and `MsgMigrateContract` that would add `encrypt` and `decrypt` methods. A user would have to encrypt those messages before including them in the list of messages to be broadcast, and they can do that by giving the code hash (and EncryptionUtils?).
-- That trait can have an associated type of EncryptionUtils? But how does it know which EncryptionUtils to use...?
 
-```rust
-// msg is the serde_json::to_vec version of the message
-let message = MsgExecuteContract { sender, contract, msg, sent_funds }.encrypt(code_hash);
-```
+# Misc
+
+1. rename EncryptionUtils to SecretUtils
+2. rename Enigma2 to TxEncryptor or something
+3. break up the secret_network_client module
+4. don't have a 'traits' module; that's dumb
+5. make a trait for 'TxProcessor', that can have default implementation for anything with an inner TxServiceClient to be able to prepare and sign and broadcast transactions. The ComputeServiceClient could overload the tx decoding methods to include decryption.
