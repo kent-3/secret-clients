@@ -3,5 +3,5 @@ resolver = "2"
 members = ["rsecret"]
 exclude = ["secret-rpc", "secret-grpc-gateway"]
 
-[patch.crates-io]
-secretrs = { path = "../secret-rust/secretrs" }
+# [patch.crates-io]
+# secretrs = { path = "../secret-rust/secretrs" }
