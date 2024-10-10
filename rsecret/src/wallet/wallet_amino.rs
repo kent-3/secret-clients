@@ -1,4 +1,6 @@
-use crate::{secret_network_client::SignDocCamelCase, Error::InvalidSigner, Result};
+use super::Error;
+use crate::wallet::{DirectSignResponse, Signer};
+pub type Result<T, E = super::Error> = core::result::Result<T, E>;
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -12,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{fmt, str::FromStr};
 
 const SECRET_COIN_TYPE: u16 = 529;
-const SECRET_BECH32_PREFIX: &'static str = "secret";
+const SECRET_BECH32_PREFIX: &str = "secret";
 
 /// Available options when creating a Wallet.
 #[derive(Debug)]
@@ -132,11 +134,9 @@ impl AminoWallet {
 }
 
 #[async_trait]
-impl AminoSigner for AminoWallet {
-    type Error = crate::Error;
-
+impl Signer for AminoWallet {
     /// Get the accounts associated with this wallet.
-    async fn get_accounts(&self) -> Result<Vec<AccountData>> {
+    async fn get_accounts(&self) -> Result<Vec<AccountData>, super::Error> {
         Ok(vec![AccountData {
             address: self.address.clone(),
             algo: Algo::Secp256k1,
@@ -144,18 +144,18 @@ impl AminoSigner for AminoWallet {
         }])
     }
 
-    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, super::Error> {
         Ok(SignMode::LegacyAminoJson)
     }
 
     /// Signs a [StdSignDoc] using Amino encoding.
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         if signer_address != self.address {
-            return Err(InvalidSigner {
+            return Err(Error::SignerError {
                 signer_address: signer_address.to_string(),
             });
         }
@@ -173,19 +173,32 @@ impl AminoSigner for AminoWallet {
         })
     }
 
-    async fn sign_permit(
+    async fn sign_permit<T: Serialize + Send + Sync>(
         &self,
         signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+        sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>, super::Error> {
         todo!()
+    }
+
+    async fn sign_direct(
+        &self,
+        signer_address: &str,
+        sign_doc: SignDoc,
+    ) -> std::result::Result<DirectSignResponse, super::Error> {
+        unimplemented!("This is an Amino Wallet")
     }
 }
 
 /// Encodes a secp256k1 signature object.
-pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Result<StdSignature> {
+pub(crate) fn encode_secp256k1_signature(
+    pubkey: &[u8],
+    signature: &[u8],
+) -> Result<StdSignature, super::Error> {
     if signature.len() != 64 {
-        return Err("Signature must be 64 bytes long".into());
+        return Err(Error::SignatureError(
+            "Signature must be 64 bytes long".into(),
+        ));
     }
 
     Ok(StdSignature {
@@ -195,7 +208,7 @@ pub(crate) fn encode_secp256k1_signature(pubkey: &[u8], signature: &[u8]) -> Res
 }
 
 /// Encodes a secp256k1 public key.
-fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
+fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey, super::Error> {
     if pubkey.len() != 33 || (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
         return Err(
             "Public key must be compressed secp256k1, i.e. 33 bytes starting with 0x02 or 0x03"
@@ -210,19 +223,19 @@ fn encode_secp256k1_pubkey(pubkey: &[u8]) -> Result<Pubkey> {
 }
 
 /// An Amino encoded message.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AminoMsg {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AminoMsg<T: Serialize> {
     pub r#type: String,
-    pub value: Vec<u8>,
+    pub value: T,
 }
 
 /// Response after signing with Amino.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AminoSignResponse {
+pub struct AminoSignResponse<T: Serialize> {
     /// The sign_doc that was signed.
     ///
     /// This may be different from the input sign_doc when the signer modifies it as part of the signing process.
-    pub signed: StdSignDoc,
+    pub signed: StdSignDoc<T>,
     pub signature: StdSignature,
 }
 
@@ -230,27 +243,86 @@ pub struct AminoSignResponse {
 ///
 /// See https://docs.cosmos.network/master/modules/auth/03_types.html#stdsigndoc
 #[derive(Debug, Serialize, Deserialize)]
-pub struct StdSignDoc {
+pub struct StdSignDoc<T: Serialize> {
     pub chain_id: String,
     pub account_number: String,
     pub sequence: String,
     pub fee: StdFee,
-    pub msgs: Vec<AminoMsg>,
+    pub msgs: Vec<AminoMsg<T>>,
     pub memo: String,
 }
 
 /// Standard fee.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StdFee {
+    #[serde(
+        serialize_with = "serialize_coins",
+        deserialize_with = "deserialize_coins"
+    )]
     pub amount: Vec<Coin>,
     pub gas: String,
     pub granter: Option<String>,
 }
 
+// TODO: name better
+/// A helper struct for serialization/deserialization of Coin where amount is a string
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CoinSerializable {
+    denom: secretrs::Denom,
+    amount: String, // Serialize amount as a string
+}
+
+impl From<secretrs::Coin> for CoinSerializable {
+    fn from(coin: secretrs::Coin) -> Self {
+        CoinSerializable {
+            denom: coin.denom,
+            amount: coin.amount.to_string(),
+        }
+    }
+}
+
+// Custom serializer for Vec<Coin> where only `amount` is serialized as a string
+fn serialize_coins<S>(coins: &Vec<Coin>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let coins_as_serializable: Vec<_> = coins
+        .iter()
+        .map(|coin| {
+            CoinSerializable {
+                denom: coin.denom.clone(),
+                amount: coin.amount.to_string(), // Serialize `u128` as string
+            }
+        })
+        .collect();
+
+    coins_as_serializable.serialize(serializer)
+}
+
+// Custom deserializer for Vec<Coin> where only `amount` is deserialized from a string
+fn deserialize_coins<'de, D>(deserializer: D) -> Result<Vec<Coin>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let coins_as_serializable: Vec<CoinSerializable> = Vec::deserialize(deserializer)?;
+    let coins: Result<Vec<Coin>, D::Error> = coins_as_serializable
+        .into_iter()
+        .map(|coin_serializable| {
+            let amount =
+                u128::from_str(&coin_serializable.amount).map_err(serde::de::Error::custom)?;
+            Ok(Coin {
+                denom: coin_serializable.denom,
+                amount,
+            })
+        })
+        .collect();
+    coins
+}
+
 /// Standard signature.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StdSignature {
-    #[serde(alias = "pubKey")]
+    #[serde(rename = "pubKey", alias = "pub_key")]
     pub pub_key: Pubkey,
     pub signature: String,
 }
@@ -283,6 +355,7 @@ pub struct Pubkey {
 /// Algorithm types used for signing.
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Algo {
     Secp256k1,
     Ed25519,
@@ -328,41 +401,7 @@ fn json_sorted_stringify(value: &Value) -> String {
 }
 
 /// Serializes a `StdSignDoc` object to a sorted and UTF-8 encoded JSON string
-pub(crate) fn serialize_std_sign_doc(sign_doc: &StdSignDoc) -> Vec<u8> {
+pub(crate) fn serialize_std_sign_doc<T: Serialize>(sign_doc: &StdSignDoc<T>) -> Vec<u8> {
     let value = serde_json::to_value(sign_doc).unwrap();
     json_sorted_stringify(&value).as_bytes().to_vec()
 }
-
-#[async_trait]
-pub trait AminoSigner {
-    type Error: Into<crate::Error>;
-
-    /// Get AccountData array from wallet. Rejects if not enabled.
-    async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;
-
-    /// Get [SignMode] for signing a tx.
-    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error> {
-        Ok(SignMode::LegacyAminoJson)
-    }
-
-    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
-    ///
-    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
-    /// return the doc that was signed in the response.
-    async fn sign_amino(
-        &self,
-        signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Self::Error>;
-
-    async fn sign_permit(
-        &self,
-        signer_address: &str,
-        sign_doc: StdSignDoc,
-    ) -> std::result::Result<AminoSignResponse, Self::Error>;
-}
-
-// enum Signer {
-//     Amino(Box<dyn AminoSigner + Send>),
-//     Direct(Box<dyn DirectSigner + Send>),
-// }

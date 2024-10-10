@@ -1,10 +1,13 @@
 #![allow(unused)]
 
-use crate::secret_network_client::CreateQuerierOptions;
-use crate::CreateClientOptions;
-use crate::{Error, Result};
-use secretrs::EncryptionUtils;
-use tonic::codegen::{Body, Bytes, StdError};
+use crate::{secret_client::CreateQuerierOptions, CreateClientOptions, Error, Result};
+use secretrs::utils::encryption::SecretUtils;
+use std::sync::Arc;
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 pub mod auth;
 pub mod authz;
@@ -63,18 +66,18 @@ use tx::TxQuerier;
 use upgrade::UpgradeQuerier;
 
 #[derive(Debug, Clone)]
-pub struct Querier<T>
+pub struct Querier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
+    U: SecretUtils,
 {
     pub auth: AuthQuerier<T>,
     pub authz: AuthzQuerier<T>,
     pub bank: BankQuerier<T>,
-    pub compute: ComputeQuerier<T>,
+    pub compute: ComputeQuerier<T, U>,
     pub distribution: DistributionQuerier<T>,
     pub emergency_button: EmergencyButtonQuerier<T>,
     pub evidence: EvidenceQuerier<T>,
@@ -101,34 +104,34 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct MiniQuerier<T>
+pub struct MiniQuerier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
+    U: SecretUtils + Sync,
 {
     pub auth: AuthQuerier<T>,
     pub bank: BankQuerier<T>,
-    pub compute: ComputeQuerier<T>,
+    pub compute: ComputeQuerier<T, U>,
     pub tendermint: TendermintQuerier<T>,
     pub tx: TxQuerier<T>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl MiniQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: SecretUtils + Sync> MiniQuerier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.enigma_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(channel.clone(), enigma_utils);
         let tendermint = TendermintQuerier::new(channel.clone());
         let tx = TxQuerier::new(channel.clone());
 
@@ -143,19 +146,19 @@ impl MiniQuerier<::tonic::transport::Channel> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Querier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: SecretUtils + Sync> Querier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = ::tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.enigma_utils))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(channel.clone());
         let authz = AuthzQuerier::new(channel.clone());
         let bank = BankQuerier::new(channel.clone());
-        let compute = ComputeQuerier::new(channel.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(channel.clone(), enigma_utils);
         let distribution = DistributionQuerier::new(channel.clone());
         let emergency_button = EmergencyButtonQuerier::new(channel.clone());
         let evidence = EvidenceQuerier::new(channel.clone());
@@ -208,11 +211,11 @@ impl Querier<::tonic::transport::Channel> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl MiniQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: SecretUtils + Sync> MiniQuerier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(client.clone(), enigma_utils);
         let tendermint = TendermintQuerier::new(client.clone());
         let tx = TxQuerier::new(client.clone());
 
@@ -227,12 +230,12 @@ impl MiniQuerier<::tonic_web_wasm_client::Client> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl Querier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: SecretUtils + Sync> Querier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: ::tonic_web_wasm_client::Client, enigma_utils: Arc<U>) -> Self {
         let auth = AuthQuerier::new(client.clone());
         let authz = AuthzQuerier::new(client.clone());
         let bank = BankQuerier::new(client.clone());
-        let compute = ComputeQuerier::new(client.clone(), encryption_utils);
+        let compute = ComputeQuerier::new(client.clone(), enigma_utils);
         let distribution = DistributionQuerier::new(client.clone());
         let emergency_button = EmergencyButtonQuerier::new(client.clone());
         let evidence = EvidenceQuerier::new(client.clone());

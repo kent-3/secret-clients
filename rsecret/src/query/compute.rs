@@ -1,8 +1,10 @@
 use super::{Error, Result};
-use crate::{secret_network_client::CreateQuerierOptions, CreateClientOptions};
+use crate::{secret_client::CreateQuerierOptions, CreateClientOptions};
+use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use regex::Regex;
-pub use secretrs::{
+use secretrs::utils::encryption::SecretMsg;
+use secretrs::{
     grpc_clients::ComputeQueryClient,
     proto::secret::compute::v1beta1::{
         ContractCodeHistoryEntry, ContractInfo, ContractInfoWithAddress, QueryByCodeIdRequest,
@@ -12,63 +14,65 @@ pub use secretrs::{
         QueryContractLabelResponse, QueryContractsByCodeIdResponse, QuerySecretContractRequest,
         QuerySecretContractResponse,
     },
+    utils::encryption::SecretUtils,
 };
-use secretrs::{utils::encryption::SecretMsg, EncryptionUtils};
-use std::collections::HashMap;
+use serde::Serialize;
+use std::{collections::HashMap, sync::Arc};
 use tonic::{
-    async_trait,
+    body::BoxBody,
+    client::GrpcService,
     codegen::{Body, Bytes, StdError},
 };
 
 #[derive(Debug, Clone)]
-pub struct ComputeQuerier<T> {
+pub struct ComputeQuerier<T, U: SecretUtils> {
     inner: ComputeQueryClient<T>,
-    encryption_utils: EncryptionUtils,
+    enigma_utils: Arc<U>,
     code_hash_cache: HashMap<String, String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl ComputeQuerier<::tonic::transport::Channel> {
-    pub async fn connect(options: CreateQuerierOptions) -> Result<Self> {
+impl<U: SecretUtils + Sync> ComputeQuerier<::tonic::transport::Channel, U> {
+    pub async fn connect(options: CreateQuerierOptions<U>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
-        Ok(Self::new(channel, options.encryption_utils))
+        Ok(Self::new(channel, options.enigma_utils.into()))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, encryption_utils: EncryptionUtils) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, enigma_utils: Arc<U>) -> Self {
         let inner = ComputeQueryClient::new(channel);
-        let encryption_utils = encryption_utils;
+        let enigma_utils = enigma_utils;
         let code_hash_cache = HashMap::new();
         Self {
             inner,
-            encryption_utils,
+            enigma_utils,
             code_hash_cache,
         }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-impl ComputeQuerier<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, encryption_utils: EncryptionUtils) -> Self {
+impl<U: SecretUtils + Sync> ComputeQuerier<::tonic_web_wasm_client::Client, U> {
+    pub fn new(client: tonic_web_wasm_client::Client, enigma_utils: Arc<U>) -> Self {
         let inner = ComputeQueryClient::new(client);
-        let encryption_utils = encryption_utils;
+        let enigma_utils = enigma_utils.into();
         let code_hash_cache = HashMap::new();
         Self {
             inner,
-            encryption_utils,
+            enigma_utils,
             code_hash_cache,
         }
     }
 }
 
-impl<T> ComputeQuerier<T>
+impl<T, U> ComputeQuerier<T, U>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
+    U: SecretUtils + Sync,
 {
     pub async fn contract_info(
         &self,
@@ -188,7 +192,7 @@ where
     // and saving it in the code_hash_cache.
 
     /// Returns a JSON string of the query response.
-    pub async fn query_secret_contract<M: ::serde::Serialize>(
+    pub async fn query_secret_contract<M: Serialize + Send + Sync>(
         &self,
         contract_address: impl Into<String>,
         code_hash: impl Into<String>,
@@ -197,7 +201,8 @@ where
         let contract_address = contract_address.into();
         let code_hash = code_hash.into();
 
-        let encrypted = self.encryption_utils.encrypt(&code_hash, &query)?;
+        let encrypted = self.enigma_utils.encrypt(&code_hash, &query).await?;
+        let encrypted = SecretMsg::from(encrypted);
         let nonce = encrypted.nonce();
         let query = encrypted.into_inner();
 
@@ -213,7 +218,7 @@ where
         let response = match compute.query_secret_contract(req).await {
             Ok(response) => {
                 let (metadata, response, _extensions) = response.into_parts();
-                let decrypted_bytes = self.encryption_utils.decrypt(&nonce, &response.data)?;
+                let decrypted_bytes = self.enigma_utils.decrypt(&nonce, &response.data).await?;
                 let decrypted_b64_string = String::from_utf8(decrypted_bytes)?;
                 let decoded_bytes = BASE64_STANDARD.decode(decrypted_b64_string)?;
                 let data = String::from_utf8(decoded_bytes)?;
@@ -235,7 +240,7 @@ where
                 if let Some(caps) = re.captures(error_message) {
                     let encrypted_bytes = BASE64_STANDARD.decode(&caps[1])?;
                     let decrypted_bytes =
-                        self.encryption_utils.decrypt(&nonce, &encrypted_bytes)?;
+                        self.enigma_utils.decrypt(&nonce, &encrypted_bytes).await?;
                     let decrypted_string = String::from_utf8(decrypted_bytes)?;
                     Err(decrypted_string)
                 } else {

@@ -33,28 +33,31 @@ pub use slashing::SlashingServiceClient;
 pub use staking::StakingServiceClient;
 
 use super::{Error, Result};
-use crate::secret_network_client::CreateTxSenderOptions;
-use crate::wallet::{AminoSigner, DirectSigner, Signer};
+use crate::secret_client::CreateTxSenderOptions;
+use crate::wallet::Signer;
 use crate::{CreateClientOptions, TxOptions};
 pub use secretrs::grpc_clients::TxServiceClient;
 pub use secretrs::proto::cosmos::tx::v1beta1::{BroadcastTxRequest, BroadcastTxResponse};
-use tonic::codegen::{Body, Bytes, StdError};
+use secretrs::utils::encryption::SecretUtils;
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug)]
-pub struct TxSender<T, S>
+pub struct TxSender<T, U, V>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+    U: SecretUtils + Sync,
+    V: Signer + Sync,
 {
     pub authz: AuthzServiceClient<T>,
     pub bank: BankServiceClient<T>,
-    pub compute: ComputeServiceClient<T, S>,
+    pub compute: ComputeServiceClient<T, U, V>,
     pub crisis: CrisisServiceClient<T>,
     pub distribution: DistributionServiceClient<T>,
     pub evidence: EvidenceServiceClient<T>,
@@ -66,20 +69,15 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<S> TxSender<::tonic::transport::Channel, S>
-where
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
-{
-    pub async fn connect(options: CreateTxSenderOptions<S>) -> Result<Self> {
+impl<U: SecretUtils + Sync, V: Signer + Sync> TxSender<::tonic::transport::Channel, U, V> {
+    pub async fn connect(options: CreateTxSenderOptions<U, V>) -> Result<Self> {
         let channel = tonic::transport::Channel::from_static(options.url)
             .connect()
             .await?;
         Ok(Self::new(channel, options))
     }
 
-    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<S>) -> Self {
+    pub fn new(channel: ::tonic::transport::Channel, options: CreateTxSenderOptions<U, V>) -> Self {
         let authz = AuthzServiceClient::new(channel.clone());
         let bank = BankServiceClient::new(channel.clone());
         let compute = ComputeServiceClient::new(channel.clone(), options);
@@ -109,8 +107,11 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl TxSender<::tonic_web_wasm_client::Client> {
-    pub fn new(client: ::tonic_web_wasm_client::Client, options: CreateTxSenderOptions) -> Self {
+impl<U: SecretUtils + Sync, V: Signer + Sync> TxSender<::tonic_web_wasm_client::Client, U, V> {
+    pub fn new(
+        client: ::tonic_web_wasm_client::Client,
+        options: CreateTxSenderOptions<U, V>,
+    ) -> Self {
         let authz = AuthzServiceClient::new(client.clone());
         let bank = BankServiceClient::new(client.clone());
         let compute = ComputeServiceClient::new(client.clone(), options);
@@ -139,16 +140,14 @@ impl TxSender<::tonic_web_wasm_client::Client> {
     }
 }
 
-impl<T, S> TxSender<T, S>
+impl<T, U, V> TxSender<T, U, V>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
+    U: SecretUtils + Sync,
+    V: Signer + Sync,
 {
     // TODO - figure out how to support multiple messages
     pub async fn broadcast(&self, request: BroadcastTxRequest) -> Result<BroadcastTxResponse> {

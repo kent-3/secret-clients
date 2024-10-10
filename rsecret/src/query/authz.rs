@@ -11,7 +11,11 @@ pub use secretrs::{
         base::query::v1beta1::{PageRequest, PageResponse},
     },
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
@@ -37,11 +41,10 @@ impl AuthzQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> AuthzQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn grants(
         &self,

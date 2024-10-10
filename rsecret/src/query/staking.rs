@@ -23,7 +23,11 @@ pub use secretrs::{
     },
     tendermint::block::Height,
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
@@ -55,11 +59,10 @@ impl StakingQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> StakingQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn validators(
         &self,

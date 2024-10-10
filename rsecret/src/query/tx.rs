@@ -7,7 +7,11 @@ pub use secretrs::{
         SimulateResponse,
     },
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug, Clone)]
 pub struct TxQuerier<T> {
@@ -34,11 +38,10 @@ impl TxQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> TxQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn simulate(&self, request: SimulateRequest) -> Result<SimulateResponse> {
         self.inner

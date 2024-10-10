@@ -6,7 +6,11 @@ pub use secretrs::{
         Key, QueryEncryptedSeedRequest, QueryEncryptedSeedResponse,
     },
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug, Clone)]
 pub struct RegistrationQuerier<T> {
@@ -37,11 +41,10 @@ impl RegistrationQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> RegistrationQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     /// Returns the key used for transactions
     pub async fn tx_key(&self) -> Result<Key> {

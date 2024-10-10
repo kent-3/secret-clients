@@ -1,6 +1,10 @@
 use super::{Error, Result};
 use secretrs::{grpc_clients::BankQueryClient, proto::cosmos::bank::v1beta1::*};
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 
 #[derive(Debug, Clone)]
 pub struct BankQuerier<T> {
@@ -27,11 +31,10 @@ impl BankQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> BankQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn balance(
         &self,

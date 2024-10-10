@@ -14,7 +14,11 @@ pub use secretrs::{
     proto::cosmos::vesting::v1beta1::{ContinuousVestingAccount, DelayedVestingAccount},
     query::PageRequest,
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
@@ -42,11 +46,10 @@ impl AuthQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> AuthQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     pub async fn params(&self) -> Result<Params> {
         let request = QueryParamsRequest {};

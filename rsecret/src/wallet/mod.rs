@@ -2,68 +2,43 @@
 
 use async_trait::async_trait;
 use secretrs::tx::SignMode;
+use serde::{de::DeserializeOwned, Serialize};
 
+pub(crate) mod error;
 pub(crate) mod wallet_amino;
 pub(crate) mod wallet_proto;
 
-pub use wallet_amino::{AccountData, AminoSignResponse, AminoSigner, StdSignDoc, WalletOptions};
-pub use wallet_proto::{DirectSignResponse, DirectSigner, SignDocVariant, Wallet};
+pub use error::Error;
+pub use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc, WalletOptions};
+pub use wallet_proto::{DirectSignResponse, SignDoc, Wallet};
 
-pub trait Signer: AminoSigner + DirectSigner
-where
-    <Self as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <Self as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
-{
+#[async_trait]
+pub trait Signer: std::fmt::Debug {
+    /// Get AccountData array from wallet. Rejects if not enabled.
+    async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Error>;
+
+    /// Get [SignMode] for signing a tx.
+    async fn get_sign_mode(&self) -> std::result::Result<SignMode, Error>;
+
+    /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
+    ///
+    /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
+    /// return the doc that was signed in the response.
+    async fn sign_amino<T: Serialize + DeserializeOwned + Send + Sync>(
+        &self,
+        signer_address: &str,
+        sign_doc: StdSignDoc<T>,
+    ) -> std::result::Result<AminoSignResponse<T>, Error>;
+
+    async fn sign_permit<T: Serialize + DeserializeOwned + Send + Sync>(
+        &self,
+        signer_address: &str,
+        sign_doc: StdSignDoc<T>,
+    ) -> std::result::Result<AminoSignResponse<T>, Error>;
+
+    async fn sign_direct(
+        &self,
+        signer_address: &str,
+        sign_doc: secretrs::tx::SignDoc,
+    ) -> std::result::Result<DirectSignResponse, Error>;
 }
-
-impl Signer for Wallet {}
-
-// NOTE: This works but is very convoluted. I don't know if it's worth all this to be able to
-// specify the Error type of these traits.
-
-// pub trait Signer:
-//     AminoSigner<Error = <Self as Signer>::Error>
-//     + DirectSigner<Error = <Self as Signer>::Error>
-//     + std::fmt::Debug
-// {
-//     type Error;
-// }
-//
-// impl Signer for Wallet {
-//     type Error = crate::Error;
-// }
-
-// NOTE: Not sure what I was doing here... maybe use this instead of AminoSigner and DirectSigner?
-//
-// #[async_trait]
-// pub trait Signer {
-//     type Error;
-//
-//     /// Get AccountData array from wallet. Rejects if not enabled.
-//     async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Self::Error>;
-//
-//     /// Get [SignMode] for signing a tx.
-//     async fn get_sign_mode(&self) -> std::result::Result<SignMode, Self::Error>;
-//
-//     /// Request signature from whichever key corresponds to provided bech32-encoded address. Rejects if not enabled.
-//     ///
-//     /// The signer implementation may offer the user the ability to override parts of the sign_doc. It must
-//     /// return the doc that was signed in the response.
-//     async fn sign_amino(
-//         &self,
-//         signer_address: &str,
-//         sign_doc: StdSignDoc,
-//     ) -> std::result::Result<AminoSignResponse, Self::Error>;
-//
-//     async fn sign_permit(
-//         &self,
-//         signer_address: &str,
-//         sign_doc: StdSignDoc,
-//     ) -> std::result::Result<AminoSignResponse, Self::Error>;
-//
-//     async fn sign_direct(
-//         &self,
-//         signer_address: &str,
-//         sign_doc: SignDocVariant,
-//     ) -> std::result::Result<DirectSignResponse, Self::Error>;
-// }

@@ -1,11 +1,15 @@
 use crate::{Error, Result};
+use ibc_proto::ibc::applications::interchain_accounts::host::v1::*;
 use prost::Message;
 pub use secretrs::{
     grpc_clients::IbcInterchainAccountsHostQueryClient,
     proto::cosmos::base::query::v1beta1::{PageRequest, PageResponse},
-    proto::ibc::applications::interchain_accounts::host::v1::*,
 };
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
@@ -31,11 +35,10 @@ impl IbcInterchainAccountsHostQuerier<::tonic_web_wasm_client::Client> {
 
 impl<T> IbcInterchainAccountsHostQuerier<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
     /// Params queries all parameters of the ICA host submodule.
     pub async fn params(&self) -> Result<Params> {

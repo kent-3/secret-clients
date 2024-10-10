@@ -1,14 +1,18 @@
 #![allow(unused)]
 
+pub mod to_amino;
+pub use to_amino::ToAmino;
+
+pub mod msg;
+
 use crate::{
     query::Querier,
     tx::TxSender,
     wallet::{
         wallet_amino::{
-            AccountData, AminoSignResponse, AminoSigner, AminoWallet, StdFee, StdSignDoc,
-            WalletOptions,
+            AccountData, AminoSignResponse, AminoWallet, StdFee, StdSignDoc, WalletOptions,
         },
-        wallet_proto::{DirectSigner, Wallet},
+        wallet_proto::Wallet,
         Signer,
     },
     Error, Result,
@@ -44,22 +48,39 @@ use secretrs::{
         AccountNumber, AuthInfo, Body as TxBody, BodyBuilder, Fee, MessageExt, Msg, Raw,
         SequenceNumber, SignDoc, SignatureBytes, SignerInfo, SignerPublicKey, Tx,
     },
-    Any, Coin, EncryptionUtils,
+    utils::encryption::{EnigmaUtils, SecretUtils},
+    Any, Coin,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
-use tonic::codegen::{Body, Bytes, StdError};
+use tonic::{
+    body::BoxBody,
+    client::GrpcService,
+    codegen::{Body, Bytes, StdError},
+};
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(not(target_arch = "wasm32"))]
 use tonic::transport::ClientTlsConfig;
 
 #[derive(Debug)]
-pub struct CreateClientOptions<S>
+pub struct SecretNetworkClientBuilder<S>
 where
     S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+{
+    url: Option<&'static str>,
+    chain_id: Option<&'static str>,
+    wallet: Option<Arc<S>>,
+    wallet_address: Option<String>,
+    encryption_seed: Option<[u8; 32]>,
+    enigma_utils: Option<EnigmaUtils>,
+}
+
+#[derive(Debug)]
+pub struct CreateClientOptions<U, V>
+where
+    U: SecretUtils,
+    V: Signer,
 {
     /// A URL to the API service, also known as LCD, REST API or gRPC-gateway, typically on port 1317.
     pub url: &'static str,
@@ -67,21 +88,20 @@ where
     pub chain_id: &'static str,
     /// An optional wallet for signing transactions & permits. If `wallet` is supplied,
     /// `wallet_address` must also be supplied.
-    pub wallet: Option<Arc<S>>,
+    pub wallet: Option<V>,
     /// The specific account address in the wallet that is permitted to sign transactions & permits.
     pub wallet_address: Option<String>,
     /// Optional encryption seed that will allow transaction decryption at a later time.
-    /// Ignored if `encryption_utils` is supplied. Must be 32 bytes.
+    /// Ignored if `enigma_utils` is supplied. Must be 32 bytes.
     pub encryption_seed: Option<[u8; 32]>,
     /// Optional field to override the default encryption utilities implementation.
-    pub encryption_utils: Option<EncryptionUtils>,
+    pub enigma_utils: Option<U>,
 }
 
-impl<S> Default for CreateClientOptions<S>
+impl<U, V> Default for CreateClientOptions<U, V>
 where
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+    U: SecretUtils,
+    V: Signer,
 {
     fn default() -> Self {
         Self {
@@ -90,16 +110,15 @@ where
             wallet: None,
             wallet_address: None,
             encryption_seed: None,
-            encryption_utils: None,
+            enigma_utils: None,
         }
     }
 }
 
-impl<S> CreateClientOptions<S>
+impl<U, V> CreateClientOptions<U, V>
 where
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+    U: SecretUtils,
+    V: Signer,
 {
     pub fn read_only(url: &'static str, chain_id: &'static str) -> Self {
         Self {
@@ -110,29 +129,28 @@ where
     }
 }
 
-// NOTE: these technically don't require the chain_id, because the EncryptionUtils are provided,
+// NOTE: these technically don't require the chain_id, because the EnigmaUtils are provided,
 // but I'll leave it here just in case.
 
 // TODO: bad design when a Channel or Client is provided (they already have a URL)
 #[derive(Debug, Clone)]
-pub struct CreateQuerierOptions {
+pub struct CreateQuerierOptions<T: SecretUtils> {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub encryption_utils: EncryptionUtils,
+    pub enigma_utils: Arc<T>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTxSenderOptions<S>
+pub struct CreateTxSenderOptions<T, U>
 where
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+    T: SecretUtils,
+    U: Signer,
 {
     pub url: &'static str,
     pub chain_id: &'static str,
-    pub wallet: Arc<S>,
+    pub enigma_utils: Arc<T>,
+    pub wallet: Arc<U>,
     pub wallet_address: Arc<str>,
-    pub encryption_utils: EncryptionUtils,
 }
 
 /// Options related to IBC transactions
@@ -213,20 +231,20 @@ impl Default for TxOptions {
 /// Signer data for overriding chain-specific data
 #[derive(Debug, Clone)]
 pub struct SignerData {
-    pub account_number: u32,
-    pub account_sequence: u32,
+    pub account_number: u64,
+    pub account_sequence: u64,
     pub chain_id: String,
 }
 
 #[async_trait]
-pub trait ReadonlySigner: AminoSigner {
+pub trait ReadonlySigner: Signer {
     async fn get_accounts() -> Result<Vec<AccountData>> {
         Err("get_accounts() is not supported in readonly mode.".into())
     }
-    async fn sign_amino(
+    async fn sign_amino<T: Serialize + Send + Sync + 'static>(
         _signer_address: String,
-        _sign_doc: StdSignDoc,
-    ) -> Result<AminoSignResponse> {
+        _sign_doc: StdSignDoc<T>,
+    ) -> Result<AminoSignResponse<T>> {
         Err("sign_amino() is not supported in readonly mode.".into())
     }
 }
@@ -305,32 +323,47 @@ impl IbcResponseType {
 
 type ComputeMsgToNonce = HashMap<u16, [u8; 32]>;
 
-#[derive(Debug)]
-pub struct SecretNetworkClient<T, S>
+trait ReadWrite {}
+
+impl<T, U, S> ReadWrite for TxSender<T, U, S>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync + 'static,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync + 'static,
+    U: SecretUtils + Sync,
+    S: Signer + Sync,
+{
+}
+
+impl<S> ReadWrite for Arc<S> {}
+
+#[derive(Debug)]
+pub struct SecretNetworkClient<T, U, V>
+where
+    T: GrpcService<BoxBody> + Clone + Sync,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: SecretUtils + Sync,
+    V: Signer + Sync,
 {
     pub url: String,
-    pub query: Querier<T>,
-    pub tx: TxSender<T, S>,
-    pub wallet: Arc<S>,
-    pub address: String,
     pub chain_id: String,
-    pub encryption_utils: EncryptionUtils,
+    pub enigma_utils: Arc<U>,
+    pub query: Querier<T, U>,
+    pub tx: TxSender<T, U, V>,
+    pub wallet: Arc<V>,
+    pub address: String,
     // TODO - is this worth doing?
     // tx_options: Arc<TxOptions>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
-    pub async fn connect(options: CreateClientOptions<Wallet>) -> Result<Self> {
+impl<U: SecretUtils + Sync, V: Signer + Sync>
+    SecretNetworkClient<::tonic::transport::Channel, U, V>
+{
+    pub async fn connect(options: CreateClientOptions<U, V>) -> Result<Self> {
         let tls = ClientTlsConfig::new().with_webpki_roots();
         let channel = tonic::transport::Channel::from_static(options.url)
             .tls_config(tls)?
@@ -344,35 +377,37 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
 
     pub fn new(
         channel: ::tonic::transport::Channel,
-        options: CreateClientOptions<Wallet>,
+        options: CreateClientOptions<U, V>,
     ) -> Result<Self> {
-        // if no Wallet is provided, a random one is created
-        let wallet = options.wallet.unwrap_or_else(|| {
-            Arc::new(Wallet::new(
-                AminoWallet::new(None, WalletOptions::default()).unwrap(),
-            ))
-        });
+        // FIXME: bad API. I should be able to create a read-only client if no signer is given.
+        let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
 
-        // if no EncryptionUtils is provided, one is created
-        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
-            // if no seed is provided, one is randomly generated
-            // TODO: query the chain for the enclave IO pubkey
-            EncryptionUtils::new(options.encryption_seed, options.chain_id).unwrap()
-        });
+        let enigma_utils = Arc::new(
+            options
+                .enigma_utils
+                .expect("EnigmaUtils should be provided"),
+        );
+
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
         //     chain_id: options.chain_id,
-        //     encryption_utils: encryption_utils.clone(),
+        //     enigma_utils: enigma_utils.clone(),
         // };
-        let query = Querier::new(channel.clone(), encryption_utils.clone());
+        let query = Querier::new(channel.clone(), enigma_utils.clone());
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
-            encryption_utils: encryption_utils.clone(),
+            enigma_utils: enigma_utils.clone(),
         };
         let tx = TxSender::new(channel.clone(), tx_client_options);
 
@@ -383,7 +418,7 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
             wallet,
             address: options.wallet_address.unwrap_or_default(),
             chain_id: options.chain_id.into(),
-            encryption_utils,
+            enigma_utils,
         })
     }
 
@@ -394,37 +429,96 @@ impl SecretNetworkClient<::tonic::transport::Channel, Wallet> {
     // }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
-    pub fn new(
-        client: ::tonic_web_wasm_client::Client,
-        options: CreateClientOptions,
+#[cfg(not(target_arch = "wasm32"))]
+impl<U: SecretUtils + Sync> SecretNetworkClient<::tonic::transport::Channel, U, Wallet> {
+    pub fn new_wallet(
+        channel: ::tonic::transport::Channel,
+        options: CreateClientOptions<U, Wallet>,
     ) -> Result<Self> {
         // if no Wallet is provided, a random one is created
         let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
             Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
         }));
 
-        // if no EncryptionUtils is provided, one is created
-        let encryption_utils = options.encryption_utils.unwrap_or_else(|| {
-            // if no seed is provided, one is randomly generated
-            // TODO: query the chain for the enclave IO pubkey
-            EncryptionUtils::new(options.encryption_seed.clone(), options.chain_id).unwrap()
-        });
+        let enigma_utils = Arc::new(options.enigma_utils.expect("must provide enigma_utils"));
+
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
 
         // let query_client_options = CreateQuerierOptions {
         //     url: options.url,
         //     chain_id: options.chain_id,
-        //     encryption_utils: encryption_utils.clone(),
+        //     enigma_utils: enigma_utils.clone(),
         // };
-        let query = Querier::new(client.clone(), encryption_utils.clone());
+        let query = Querier::new(channel.clone(), enigma_utils.clone());
 
         let tx_client_options = CreateTxSenderOptions {
             url: options.url,
             chain_id: options.chain_id,
             wallet: wallet.clone(),
             wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
-            encryption_utils: encryption_utils.clone(),
+            enigma_utils: enigma_utils.clone(),
+        };
+        let tx = TxSender::new(channel.clone(), tx_client_options);
+
+        Ok(Self {
+            url: options.url.into(),
+            query,
+            tx,
+            wallet,
+            address: options.wallet_address.unwrap_or_default(),
+            chain_id: options.chain_id.into(),
+            enigma_utils,
+        })
+    }
+
+    // I think it'd be a nice feature to be able to change the default tx options
+    // pub fn tx_options(&mut self, options: TxOptions) -> &mut Self {
+    //     self.tx_options = Arc::new(options);
+    //     self
+    // }
+}
+#[cfg(target_arch = "wasm32")]
+impl<U: SecretUtils + Sync, V: Signer + Sync>
+    SecretNetworkClient<::tonic_web_wasm_client::Client, U, V>
+{
+    pub fn new(
+        client: ::tonic_web_wasm_client::Client,
+        options: CreateClientOptions<U, V>,
+    ) -> Result<Self> {
+        // if no Wallet is provided, a random one is created
+        // let wallet = Arc::new(options.wallet.unwrap_or_else(|| {
+        //     Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap())
+        // }));
+
+        let wallet = Arc::new(options.wallet.expect("Wallet should be provided"));
+
+        let enigma_utils = Arc::new(options.enigma_utils.expect("must provide enigma_utils"));
+
+        // // if no EnigmaUtils is provided, one is created
+        // let enigma_utils = options.enigma_utils.unwrap_or_else(|| {
+        //     // if no seed is provided, one is randomly generated
+        //     // TODO: query the chain for the enclave IO pubkey
+        //     EnigmaUtils::new(options.encryption_seed, options.chain_id).unwrap()
+        // });
+
+        // let query_client_options = CreateQuerierOptions {
+        //     url: options.url,
+        //     chain_id: options.chain_id,
+        //     enigma_utils: enigma_utils.clone(),
+        // };
+        let query = Querier::new(client.clone(), enigma_utils.clone());
+
+        let tx_client_options = CreateTxSenderOptions {
+            url: options.url,
+            chain_id: options.chain_id,
+            enigma_utils: enigma_utils.clone(),
+            wallet: wallet.clone(),
+            wallet_address: options.wallet_address.clone().unwrap_or_default().into(),
         };
         let tx = TxSender::new(client.clone(), tx_client_options);
 
@@ -435,21 +529,19 @@ impl SecretNetworkClient<::tonic_web_wasm_client::Client> {
             wallet,
             address: options.wallet_address.unwrap_or_default().into(),
             chain_id: options.chain_id.into(),
-            encryption_utils,
+            enigma_utils,
         });
     }
 }
 
-impl<T, S> SecretNetworkClient<T, S>
+impl<T, U, V> SecretNetworkClient<T, U, V>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
-    S: Signer,
-    <S as AminoSigner>::Error: std::error::Error + Send + Sync,
-    <S as DirectSigner>::Error: std::error::Error + Send + Sync,
+    U: SecretUtils + Sync,
+    V: Signer + Sync,
 {
     /// Returns a transaction with a txhash. Must be 64 character upper-case hex string.
     pub async fn get_tx(
@@ -462,7 +554,7 @@ where
         let Some(tx_response) = get_tx_response.tx_response else {
             return Ok(None);
         };
-        let tx_response = self.decode_tx_response(tx_response, ibc_tx_options)?;
+        let tx_response = self.decode_tx_response(tx_response, ibc_tx_options).await?;
 
         Ok(Some(tx_response))
     }
@@ -517,8 +609,9 @@ where
             debug!("not sure what to do about pagination yet");
         };
 
-        let tx_responses =
-            self.decode_tx_responses(get_txs_event_response.tx_responses, ibc_tx_options)?;
+        let tx_responses = self
+            .decode_tx_responses(get_txs_event_response.tx_responses, ibc_tx_options)
+            .await?;
 
         Ok(Some(tx_responses))
     }
@@ -534,18 +627,29 @@ where
         todo!()
     }
 
-    fn decode_tx_responses(
+    async fn decode_tx_responses(
         &self,
         tx_responses: Vec<TxResponseProto>,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<Vec<TxResponse>> {
-        tx_responses
-            .into_iter()
-            .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
-            .collect()
+        // tx_responses
+        //     .into_iter()
+        //     .map(|tx_response| self.decode_tx_response(tx_response, ibc_tx_options.clone()))
+        //     .collect()
+
+        let mut decoded_responses = Vec::with_capacity(tx_responses.len());
+
+        for tx_response in tx_responses {
+            let decoded = self
+                .decode_tx_response(tx_response, ibc_tx_options.clone())
+                .await?;
+            decoded_responses.push(decoded);
+        }
+
+        Ok(decoded_responses)
     }
 
-    fn decode_tx_response(
+    async fn decode_tx_response(
         &self,
         tx_response: TxResponseProto,
         ibc_tx_options: Option<IbcTxOptions>,
@@ -571,7 +675,7 @@ where
                     nonce.copy_from_slice(&msg.init_msg[0..32]);
                     let ciphertext = &msg.init_msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         // we only insert the nonce in the hashmap if we were able to use it!
                         nonces.insert(msg_index as u16, nonce);
                         msg.init_msg = serde_json::from_slice(&plaintext[64..])?;
@@ -587,7 +691,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -602,7 +706,7 @@ where
                     nonce.copy_from_slice(&msg.msg[0..32]);
                     let ciphertext = &msg.msg[64..];
 
-                    if let Ok(plaintext) = self.encryption_utils.decrypt(&nonce, ciphertext) {
+                    if let Ok(plaintext) = self.enigma_utils.decrypt(&nonce, ciphertext).await {
                         nonces.insert(msg_index as u16, nonce);
                         msg.msg = serde_json::from_slice(&plaintext[64..])?;
 
@@ -641,7 +745,7 @@ where
                         let mut decoded =
                             <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
@@ -655,7 +759,7 @@ where
                         let mut decoded =
                             <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
 
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -667,7 +771,7 @@ where
                         debug!("found an encrypted message!");
                         let mut decoded =
                             <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
-                        if let Ok(bytes) = self.encryption_utils.decrypt(nonce, &decoded.data) {
+                        if let Ok(bytes) = self.enigma_utils.decrypt(nonce, &decoded.data).await {
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
@@ -878,10 +982,18 @@ pub fn gas_to_fee(gas_limit: u32, gas_price: f32) -> u128 {
 
 use secretrs::utils::encryption::SecretMsg;
 
-pub trait Enigma {
-    fn encrypt<M: Serialize>(&self, contract_code_hash: &str, msg: &M) -> Result<SecretMsg>;
-    fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
-    fn decrypt_tx_response<'a>(&'a self, tx: &'a mut TxResponse) -> Result<&'a mut TxResponse>;
+#[async_trait(?Send)]
+pub trait TxDecrypter {
+    async fn encrypt<M: Serialize + Send + Sync>(
+        &self,
+        contract_code_hash: &str,
+        msg: &M,
+    ) -> Result<SecretMsg>;
+    async fn decrypt(&self, nonce: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>>;
+    async fn decrypt_tx_response<'a>(
+        &'a self,
+        tx: &'a mut TxResponse,
+    ) -> Result<&'a mut TxResponse>;
 }
 
 #[async_trait]
@@ -902,16 +1014,14 @@ pub trait TxDecoder {
         tx_response: TxResponseProto,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
+        debug!("decoding tx_response...");
         let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
 
-        let Some(any) = tx_response.tx else {
-            return Err("missing field: 'tx'".into());
-        };
+        let any = tx_response
+            .tx
+            .ok_or("'tx' field is required to decode_tx_response")?;
+        let tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
 
-        debug!("processing tx...");
-        let mut tx: Tx = any.to_msg::<TxProto>()?.try_into()?;
-
-        debug!("processing data...");
         let mut data =
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
@@ -927,7 +1037,6 @@ pub trait TxDecoder {
         // TODO:
         let ibc_responses = None;
 
-        debug!("processing events...");
         let events = tx_response
             .events
             .into_iter()
@@ -1048,92 +1157,23 @@ use crate::tx::{ComputeServiceClient, TxServiceClient};
 #[async_trait]
 impl<T> TxDecoder for TxServiceClient<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: GrpcService<BoxBody> + Clone + Sync,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    T: Clone,
 {
 }
 
-// TODO: we need some generic 'Msg' type to be used in all these methods.
-// I think one exists in cosmrs... but that probably won't have a to_amino method
-//
-// pub struct ProtoMsg {
-//     type_url: String,
-//     // value is used in x/compute
-//     value: Vec<u8>,
-// }
-//
-// pub trait ProtoMsg {
-//     async fn encode(&self) -> Result<Vec<u8>>;
-// }
-//
-// pub struct AminoMsg {
-//     r#type: String,
-//     value: Vec<u8>,
-// }
-//
-// pub trait Msg {
-//     fn to_proto(utils: EncryptionUtils) -> Result<ProtoMsg>;
-//     fn to_amino(utils: EncryptionUtils) -> Result<AminoMsg>;
-// }
-
-// TODO: work out traits related to signing
-//
-// /// A signer capable of signing transactions.
-// pub trait Signer {
-//     // Define methods relevant to the Signer trait here
-//     fn sign();
-// }
-//
-// pub trait DirectSigner: Signer {
-//     fn sign_direct();
-// }
-//
-// impl Signer for Wallet {
-//     fn sign() {
-//         todo!()
-//     }
-// }
-
-#[derive(Debug, Clone)]
-#[allow(non_snake_case)]
-pub struct SignDocCamelCase {
-    /// `bodyBytes` is protobuf serialization of a TxBody that matches the
-    /// representation in TxRaw.
-    pub bodyBytes: Vec<u8>,
-
-    /// `authInfoBytes` is a protobuf serialization of an AuthInfo that matches the
-    /// representation in TxRaw.
-    pub authInfoBytes: Vec<u8>,
-
-    /// `chainId` is the unique identifier of the chain this transaction targets.
-    /// It prevents signed transactions from being used on another chain by an
-    /// attacker.
-    pub chainId: String,
-
-    /// `accountNumber` is the account number of the account in state.
-    pub accountNumber: String,
-}
-
-impl SignDocCamelCase {
-    pub fn into_bytes(self) -> Result<Vec<u8>> {
-        Ok(SignDoc::try_from(self)?.into_bytes()?)
-    }
-}
-
-impl TryFrom<SignDocCamelCase> for SignDoc {
-    type Error = crate::Error;
-
-    fn try_from(doc: SignDocCamelCase) -> Result<Self> {
-        Ok(SignDoc {
-            body_bytes: doc.bodyBytes,
-            auth_info_bytes: doc.authInfoBytes,
-            chain_id: doc.chainId,
-            account_number: doc.accountNumber.parse()?,
-        })
-    }
+#[async_trait]
+impl<T, U, V> TxDecoder for ComputeServiceClient<T, U, V>
+where
+    T: GrpcService<BoxBody> + Clone + Sync,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    U: SecretUtils + Sync,
+    V: Signer + Sync,
+{
 }
 
 #[repr(u32)]
