@@ -1,6 +1,4 @@
-use super::Error;
-use crate::wallet::{DirectSignResponse, Signer};
-pub type Result<T, E = super::Error> = core::result::Result<T, E>;
+use super::{DirectSignResponse, Error, Signer};
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use secretrs::{
@@ -13,11 +11,13 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::{fmt, str::FromStr};
 
+type Result<T, E = super::Error> = core::result::Result<T, E>;
+
 const SECRET_COIN_TYPE: u16 = 529;
 const SECRET_BECH32_PREFIX: &str = "secret";
 
 /// Available options when creating a Wallet.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalletOptions {
     /// The account index in the HD derivation path. Defaults to `0`.
     pub hd_account_index: u32,
@@ -183,10 +183,10 @@ impl Signer for AminoWallet {
 
     async fn sign_direct(
         &self,
-        signer_address: &str,
-        sign_doc: SignDoc,
+        _signer_address: &str,
+        _sign_doc: SignDoc,
     ) -> std::result::Result<DirectSignResponse, super::Error> {
-        unimplemented!("This is an Amino Wallet")
+        unimplemented!("This is an Amino Wallet.")
     }
 }
 

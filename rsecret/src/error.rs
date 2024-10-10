@@ -50,7 +50,7 @@ pub enum Error {
     #[error(transparent)]
     ErrorReport(#[from] secretrs::ErrorReport),
     #[error(transparent)]
-    EncryptionUtils(#[from] secretrs::utils::Error),
+    SecretUtils(#[from] secretrs::utils::Error),
     #[error(transparent)]
     Tendermint(#[from] secretrs::tendermint::Error),
     #[error(transparent)]
@@ -74,11 +74,3 @@ impl From<String> for Error {
         Self::Custom(value)
     }
 }
-
-// impl core::fmt::Display for Error {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "{self:?}")
-//     }
-// }
-//
-// impl std::error::Error for Error {}

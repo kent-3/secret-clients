@@ -4,13 +4,16 @@ use async_trait::async_trait;
 use secretrs::tx::SignMode;
 use serde::{de::DeserializeOwned, Serialize};
 
-pub(crate) mod error;
-pub(crate) mod wallet_amino;
-pub(crate) mod wallet_proto;
+pub mod error;
+pub mod wallet_amino;
+pub mod wallet_proto;
 
 pub use error::Error;
-pub use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc, WalletOptions};
-pub use wallet_proto::{DirectSignResponse, SignDoc, Wallet};
+pub use wallet_amino::WalletOptions;
+pub use wallet_proto::Wallet;
+
+use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc};
+use wallet_proto::DirectSignResponse;
 
 #[async_trait]
 pub trait Signer: std::fmt::Debug {

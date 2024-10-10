@@ -5,26 +5,19 @@ use super::{
     },
     Error, Signer,
 };
-
-pub type Result<T, E = super::Error> = core::result::Result<T, E>;
-
 use async_trait::async_trait;
 use base64::prelude::{Engine, BASE64_STANDARD};
-use secretrs::{
-    crypto::{secp256k1::SigningKey, PublicKey},
-    tx::SignMode,
-    Coin,
-};
+use secretrs::tx::SignMode;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::{fmt, str::FromStr};
+
+type Result<T, E = super::Error> = core::result::Result<T, E>;
 
 /// Wallet is a wallet capable of signing on transactions.
 ///
-/// `Wallet` can just extend `AminoWallet` and be a valid `DirectSigner` because
-/// `SecretNetworkClient` checks first for the existence of `signDirect` function
-/// before checking for `signAmino` function.
+/// [Wallet] can just extend [AminoWallet] and be a valid `DirectSigner` because
+/// `SecretNetworkClient` checks first for the existence of `sign_direct` function
+/// before checking for `sign_amino` function.
 #[derive(Debug)]
 pub struct Wallet(AminoWallet);
 

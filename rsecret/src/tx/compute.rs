@@ -6,8 +6,12 @@ use crate::{
         TxDecrypter, TxOptions, TxResponse,
     },
     wallet::{
-        wallet_amino::{AminoMsg, AminoSignResponse, StdFee, StdSignDoc, StdSignature},
-        AccountData, DirectSignResponse, Signer, Wallet, WalletOptions,
+        wallet_amino::{
+            AccountData, AminoMsg, AminoSignResponse, StdFee, StdSignDoc, StdSignature,
+            WalletOptions,
+        },
+        wallet_proto::{DirectSignResponse, Wallet},
+        Signer,
     },
 };
 use async_trait::async_trait;
