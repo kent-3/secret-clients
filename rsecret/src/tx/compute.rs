@@ -190,9 +190,13 @@ where
         // NOTE: This part is confusing!
         // `TxMsgData` has two fields: `data: Vec<MsgData>` and `msg_responses: Vec<Any>`.
         //     * `data` was deprecated in v0.46, but secret is currently v0.45
-        //     * `msg_responnses` is currently empty
+        //     * `msg_responses` is currently empty but should change in v0.50
         // `MsgData` is like a pseudo-Any. It has two fields: `msg_type: String` and `data: Vec<u8>`.
-        //     * `msg_type` is the type of message that `data` is the response for
+        //     * `msg_type` is the Incoming message type that emitted this result data, for example `"/cosmos.bank.v1beta1.MsgSend"`.
+        //     * `data` is the Binary data emitted by this message.
+        // The data has to be decoded into the corresponding protobuf `Response` type.
+        // For example, if the data was emitted as a result of a `MsgSend`, i.e. `msg.msg_type == "/cosmos.bank.v1beta1.MsgSend"`,
+        // then you should decode it into `"/cosmos.bank.v1beta1.MsgSendResponse"
 
         #[allow(deprecated)]
         for (msg_index, msg_data) in tx_response.data.iter_mut().enumerate() {
@@ -210,12 +214,12 @@ where
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            debug!("Decrypted MsgInstantiateContract at index {msg_index}.");
+                            debug!("Decrypted MsgInstantiateContract data at index {msg_index}.");
                             debug!("{}", std::str::from_utf8(&data).unwrap());
 
                             *msg_data = MsgData { msg_type, data }
                         } else {
-                            info!("Unable to decrypt MsgInstantiateContract at index {msg_index}.");
+                            info!("Unable to decrypt MsgInstantiateContract data at index {msg_index}.");
                         }
                     }
                     "/secret.compute.v1beta1.MsgExecuteContract" => {
@@ -226,12 +230,14 @@ where
                             let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
                             let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
-                            debug!("Decrypted MsgExecuteContract at index {msg_index}.");
+                            debug!("Decrypted MsgExecuteContract data at index {msg_index}.");
                             debug!("{}", std::str::from_utf8(&data).unwrap());
 
                             *msg_data = MsgData { msg_type, data }
                         } else {
-                            info!("Unable to decrypt MsgExecuteContract at index {msg_index}.");
+                            info!(
+                                "Unable to decrypt MsgExecuteContract data at index {msg_index}."
+                            );
                         }
                     }
                     "/secret.compute.v1beta1.MsgMigrateContract" => {
@@ -241,12 +247,14 @@ where
                             let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
                             let data = BASE64_STANDARD.decode(from_utf8(&bytes)?)?;
 
-                            debug!("Decrypted MsgMigrateContract at index {msg_index}.");
+                            debug!("Decrypted MsgMigrateContract data at index {msg_index}.");
                             debug!("{}", from_utf8(&data)?);
 
                             *msg_data = MsgData { msg_type, data }
                         } else {
-                            info!("Unable to decrypt MsgMigrateContract at index {msg_index}.");
+                            info!(
+                                "Unable to decrypt MsgMigrateContract data at index {msg_index}."
+                            );
                         }
                     }
                     // If the message is not of type MsgInstantiateContract MsgExecuteContract,
@@ -258,21 +266,23 @@ where
             }
         }
 
-        // TODO: decrypt the logs
         for (msg_index, log) in tx_response.logs.iter_mut().enumerate() {
             for event in log.events.iter_mut() {
                 for attr in event.attributes.iter_mut() {
                     if event.r#type == "wasm" {
+                        debug!("{attr:?}");
                         if let Some(nonce) = nonces.get(&(msg_index as u16)) {
-                            let decrypted_key = self
-                                .decrypt(nonce, &BASE64_STANDARD.decode(&attr.key)?)
-                                .await?;
-                            let decrypted_value = self
-                                .decrypt(nonce, &BASE64_STANDARD.decode(&attr.value)?)
-                                .await?;
-
-                            attr.key = from_utf8(&decrypted_key)?.trim().to_string();
-                            attr.value = from_utf8(&decrypted_value)?.trim().to_string();
+                            if let Ok(key) = BASE64_STANDARD.decode(&attr.key) {
+                                if let Ok(decrypted_key) = self.decrypt(nonce, &key).await {
+                                    attr.key = from_utf8(&decrypted_key)?.trim().to_string();
+                                }
+                            }
+                            if let Ok(value) = BASE64_STANDARD.decode(&attr.value) {
+                                let decrypted_value = self.decrypt(nonce, &value).await?;
+                                if let Ok(decrypted_value) = self.decrypt(nonce, &value).await {
+                                    attr.value = from_utf8(&decrypted_value)?.trim().to_string();
+                                }
+                            }
                         }
                     }
                 }
@@ -481,7 +491,7 @@ where
         let hash = hasher.finalize();
         let tx_hash = hex::encode(hash).to_uppercase();
 
-        debug!("TX_HASH: {tx_hash}");
+        info!("TX_HASH: {tx_hash}");
 
         let tx = TxRaw::decode(tx_bytes.as_ref())?;
         let body = TxBodyProto::decode(tx.body_bytes.as_ref())?;
@@ -602,7 +612,7 @@ where
         sleep(Duration::from_millis(check_interval_ms as u64 / 2)).await;
 
         loop {
-            debug!("Checking for Tx...");
+            info!("Checking for Tx...");
             if let Ok(Some(mut tx_response)) = self.get_tx(&tx_hash, ibc_tx_options.clone()).await {
                 self.decrypt_tx_response(&mut tx_response).await?;
                 return Ok(tx_response);

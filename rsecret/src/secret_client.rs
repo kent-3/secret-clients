@@ -249,6 +249,8 @@ pub trait ReadonlySigner: Signer {
     }
 }
 
+// TODO: implement Display trait for TxResponse
+
 #[derive(Debug)]
 pub struct TxResponse {
     /// Block height in which the tx was committed on-chain
