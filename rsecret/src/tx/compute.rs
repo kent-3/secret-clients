@@ -859,8 +859,8 @@ where
 
         let auth_info = signer_info.auth_info(fee);
 
-        debug!("{:?}", tx_body);
-        debug!("{:?}", auth_info);
+        trace!("{:?}", tx_body);
+        trace!("{:?}", auth_info);
 
         let signed_tx_raw = TxRaw {
             body_bytes: tx_body.into_bytes()?,
