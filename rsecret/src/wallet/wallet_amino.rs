@@ -133,7 +133,8 @@ impl AminoWallet {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Signer for AminoWallet {
     /// Get the accounts associated with this wallet.
     async fn get_accounts(&self) -> Result<Vec<AccountData>, super::Error> {

@@ -1016,7 +1016,6 @@ pub trait TxDecoder {
         tx_response: TxResponseProto,
         ibc_tx_options: Option<IbcTxOptions>,
     ) -> Result<TxResponse> {
-        debug!("decoding tx_response...");
         let explicit_ibc_tx_options = ibc_tx_options.unwrap_or_default();
 
         let any = tx_response

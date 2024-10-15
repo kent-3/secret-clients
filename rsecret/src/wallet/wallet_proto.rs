@@ -104,7 +104,8 @@ pub struct DirectSignResponse {
     pub signature: StdSignature,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Signer for Wallet {
     // type Error = crate::Error;
 

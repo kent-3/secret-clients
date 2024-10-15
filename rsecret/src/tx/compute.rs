@@ -413,7 +413,8 @@ where
         code_hash: impl Into<String>,
         tx_options: TxOptions,
     ) -> Result<TxResponse> {
-        debug!("{}", serde_json::to_string_pretty(&msg.msg).unwrap());
+        debug!("{:#?}", msg);
+        // debug!("{}", serde_json::to_string_pretty(&msg.msg).unwrap());
 
         let encrypted_msg = self.encrypt(&code_hash.into(), &msg.msg).await?;
 

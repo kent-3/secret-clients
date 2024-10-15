@@ -15,7 +15,8 @@ pub use wallet_proto::Wallet;
 use wallet_amino::{AccountData, AminoSignResponse, StdSignDoc};
 use wallet_proto::DirectSignResponse;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait Signer: std::fmt::Debug {
     /// Get AccountData array from wallet. Rejects if not enabled.
     async fn get_accounts(&self) -> std::result::Result<Vec<AccountData>, Error>;
