@@ -221,7 +221,7 @@ where
                 let decrypted_bytes = self.enigma_utils.decrypt(&nonce, &response.data).await?;
                 let decrypted_b64_string = String::from_utf8(decrypted_bytes)?;
                 let decoded_bytes = BASE64_STANDARD.decode(decrypted_b64_string)?;
-                let data = String::from_utf8(decoded_bytes)?;
+                let data = std::str::from_utf8(&decoded_bytes)?;
 
                 // let http_headers = metadata.into_headers();
                 // let block_height = http_headers

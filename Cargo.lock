@@ -1957,9 +1957,9 @@ dependencies = [
 
 [[package]]
 name = "secretrs"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e31b17dabec4b2413c937a6176a6e7a95fc0b3c271e6626c4a84e8597c42268"
+checksum = "b94b75e8d61143cb2174463af50ebdef77ab2542ddea875f543c40c8f5a32687"
 dependencies = [
  "aes-siv",
  "async-trait",
