@@ -17,6 +17,7 @@ use crate::{
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use prost::Message;
+use regex::Regex;
 use secretrs::{
     abci::MsgData,
     compute::{MsgExecuteContract, MsgInstantiateContract, MsgMigrateContract, MsgStoreCode},
@@ -287,6 +288,29 @@ where
                     }
                 }
             }
+        }
+
+        if tx_response.code != 0 {
+            let re = Regex::new(r"message index: (\d+).*?encrypted: ([A-Za-z0-9+/=]+):").unwrap();
+            if let Some(mut caps) = re.captures(&tx_response.raw_log) {
+                let encrypted_bytes = BASE64_STANDARD.decode(&caps[2])?;
+                if let Some(nonce) = nonces.get(&caps[1].parse::<u16>()?) {
+                    let decrypted_bytes = self.decrypt(&nonce, &encrypted_bytes).await?;
+                    let decrypted_string = String::from_utf8(decrypted_bytes)?;
+                    // let caps[2] = decrypted_string;
+                    let message = format!(
+                        "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
+                        tx_response.code, tx_response.codespace, decrypted_string
+                    );
+                    return Err(Error::custom(message));
+                }
+            };
+
+            let message = format!(
+                "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
+                tx_response.code, tx_response.codespace, tx_response.raw_log
+            );
+            return Err(Error::custom(message));
         }
 
         Ok(tx_response)
