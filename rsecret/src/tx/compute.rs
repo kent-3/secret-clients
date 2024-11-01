@@ -292,25 +292,26 @@ where
 
         if tx_response.code != 0 {
             let re = Regex::new(r"message index: (\d+).*?encrypted: ([A-Za-z0-9+/=]+):").unwrap();
+
             if let Some(mut caps) = re.captures(&tx_response.raw_log) {
-                let encrypted_bytes = BASE64_STANDARD.decode(&caps[2])?;
-                if let Some(nonce) = nonces.get(&caps[1].parse::<u16>()?) {
+                let message_index = &caps[1].parse::<u16>()?;
+                if let Some(nonce) = nonces.get(&message_index) {
+                    let encrypted_bytes = BASE64_STANDARD.decode(&caps[2])?;
                     let decrypted_bytes = self.decrypt(&nonce, &encrypted_bytes).await?;
-                    let decrypted_string = String::from_utf8(decrypted_bytes)?;
-                    // let caps[2] = decrypted_string;
-                    let message = format!(
-                        "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
-                        tx_response.code, tx_response.codespace, decrypted_string
+                    let decrypted_str = std::str::from_utf8(&decrypted_bytes)?;
+                    let new_raw_log = format!(
+                        "failed to execute message; message index: {}: {}: execute contract failed",
+                        message_index, decrypted_str
                     );
-                    return Err(Error::custom(message));
+                    tx_response.raw_log = new_raw_log;
                 }
             };
 
-            let message = format!(
-                "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
-                tx_response.code, tx_response.codespace, tx_response.raw_log
-            );
-            return Err(Error::custom(message));
+            // let message = format!(
+            //     "Broadcasting transaction failed with code {} (codespace: {}). Log: {}",
+            //     tx_response.code, tx_response.codespace, tx_response.raw_log
+            // );
+            // return Err(Error::custom(message));
         }
 
         Ok(tx_response)
@@ -579,6 +580,7 @@ where
                     tx_bytes,
                     mode: mode.into(),
                 };
+                // TODO: This can fail fairly often. Should introduce some basic retry mechanism.
                 let mut tx_response = tx_service
                     .broadcast_tx(request)
                     .await?
