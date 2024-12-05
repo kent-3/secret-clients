@@ -1,7 +1,10 @@
 #![allow(unused)]
 
 use color_eyre::Result;
-use rsecret::{wallet::Wallet, CreateClientOptions, SecretNetworkClient, TxOptions};
+use rsecret::{
+    wallet::{wallet_amino::AminoWallet, Signer, Wallet, WalletOptions},
+    CreateClientOptions, SecretNetworkClient, TxOptions,
+};
 use secretrs::{
     compute::ContractInfo,
     proto::{
@@ -30,11 +33,11 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 use tracing_subscriber::{fmt::format::DefaultFields, EnvFilter};
 
-// const GRPC_URL: &str = "http://grpc.testnet.secretsaturn.net:9090";
-// const CHAIN_ID: &str = "pulsar-3";
-const GRPC_URL: &str = "https://secretnetwork-grpc.lavenderfive.com";
-// const GRPC_URL: &str = "http://grpc.mainnet.secretsaturn.net:9090";
-const CHAIN_ID: &str = "secret-4";
+const GRPC_URL: &str = "http://grpcbin.pulsar.scrttestnet.com:9099";
+const CHAIN_ID: &str = "pulsar-3";
+
+// const GRPC_URL: &str = "https://secretnetwork-grpc.lavenderfive.com";
+// const CHAIN_ID: &str = "secret-4";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -48,10 +51,19 @@ async fn main() -> Result<()> {
         .pretty()
         .init();
 
+    let wallet = Wallet::new(AminoWallet::new(None, WalletOptions::default()).unwrap());
+    let account_data = wallet.get_accounts().await?;
+    let address = account_data[0].address.clone();
+
+    let enigma_utils = EnigmaUtils::new(None, "pulsar-3")?;
+
     let options = CreateClientOptions::<EnigmaUtils, Wallet> {
         url: GRPC_URL,
         chain_id: CHAIN_ID,
-        ..Default::default()
+        wallet: Some(wallet),
+        wallet_address: Some(address),
+        enigma_utils: Some(enigma_utils),
+        encryption_seed: None,
     };
 
     let secretrs = SecretNetworkClient::connect(options).await?;
@@ -70,8 +82,8 @@ async fn main() -> Result<()> {
         .collect();
     info!("{:?}", validator_monikers);
 
-    // let contract_address = "secret19gtpkk25r0c36gtlyrc6repd3q52ngmkpfszw3";
-    let contract_address = "secret1s09x2xvfd2lp2skgzm29w2xtena7s8fq98v852";
+    let contract_address = "secret19gtpkk25r0c36gtlyrc6repd3q52ngmkpfszw3";
+    // let contract_address = "secret1s09x2xvfd2lp2skgzm29w2xtena7s8fq98v852";
     let code_hash = "9a00ca4ad505e9be7e6e6dddf8d939b7ec7e9ac8e109c8681f10db9cacb36d42";
     let query = QueryMsg::TokenInfo {};
 
