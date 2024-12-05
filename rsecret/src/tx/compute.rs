@@ -199,42 +199,41 @@ where
         // For example, if the data was emitted as a result of a `MsgSend`, i.e. `msg.msg_type == "/cosmos.bank.v1beta1.MsgSend"`,
         // then you should decode it into `"/cosmos.bank.v1beta1.MsgSendResponse"
 
-        #[allow(deprecated)]
-        for (msg_index, msg_data) in tx_response.data.iter_mut().enumerate() {
+        for (msg_index, any) in tx_response.data.iter_mut().enumerate() {
             // Check if the message needs decryption (has an associated nonce from earlier)
             if let Some(nonce) = nonces.get(&(msg_index as u16)) {
-                match msg_data.msg_type.as_str() {
+                match any.type_url.as_str() {
                     // if the message was a MsgInstantiateContract, then the data is in the form of
                     // MsgInstantiateContractResponse. same goes for Execute and Migrate.
                     "/secret.compute.v1beta1.MsgInstantiateContract" => {
                         let mut decoded =
-                            <MsgInstantiateContractResponse as Message>::decode(&*msg_data.data)?;
+                            <MsgInstantiateContractResponse as Message>::decode(&*any.value)?;
 
                         if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
-                            let msg_type =
+                            let type_url =
                                 "/secret.compute.v1beta1.MsgInstantiateContract".to_string();
-                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
+                            let value = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
                             debug!("Decrypted MsgInstantiateContract data at index {msg_index}.");
-                            debug!("{}", std::str::from_utf8(&data).unwrap());
+                            debug!("{}", std::str::from_utf8(&value).unwrap());
 
-                            *msg_data = MsgData { msg_type, data }
+                            *any = Any { type_url, value }
                         } else {
                             info!("Unable to decrypt MsgInstantiateContract data at index {msg_index}.");
                         }
                     }
                     "/secret.compute.v1beta1.MsgExecuteContract" => {
                         let mut decoded =
-                            <MsgExecuteContractResponse as Message>::decode(&*msg_data.data)?;
+                            <MsgExecuteContractResponse as Message>::decode(&*any.value)?;
 
                         if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
-                            let msg_type = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
-                            let data = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
+                            let type_url = "/secret.compute.v1beta1.MsgExecuteContract".to_string();
+                            let value = BASE64_STANDARD.decode(String::from_utf8(bytes)?)?;
 
                             debug!("Decrypted MsgExecuteContract data at index {msg_index}.");
-                            debug!("{}", std::str::from_utf8(&data).unwrap());
+                            debug!("{}", std::str::from_utf8(&value).unwrap());
 
-                            *msg_data = MsgData { msg_type, data }
+                            *any = Any { type_url, value }
                         } else {
                             info!(
                                 "Unable to decrypt MsgExecuteContract data at index {msg_index}."
@@ -243,15 +242,15 @@ where
                     }
                     "/secret.compute.v1beta1.MsgMigrateContract" => {
                         let mut decoded =
-                            <MsgMigrateContractResponse as Message>::decode(&*msg_data.data)?;
+                            <MsgMigrateContractResponse as Message>::decode(&*any.value)?;
                         if let Ok(bytes) = self.decrypt(nonce, &decoded.data).await {
-                            let msg_type = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
-                            let data = BASE64_STANDARD.decode(from_utf8(&bytes)?)?;
+                            let type_url = "/secret.compute.v1beta1.MsgMigrateContract".to_string();
+                            let value = BASE64_STANDARD.decode(from_utf8(&bytes)?)?;
 
                             debug!("Decrypted MsgMigrateContract data at index {msg_index}.");
-                            debug!("{}", from_utf8(&data)?);
+                            debug!("{}", from_utf8(&value)?);
 
-                            *msg_data = MsgData { msg_type, data }
+                            *any = Any { type_url, value }
                         } else {
                             info!(
                                 "Unable to decrypt MsgMigrateContract data at index {msg_index}."

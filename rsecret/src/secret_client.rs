@@ -262,7 +262,7 @@ pub struct TxResponse {
     /// Transaction execution error code. 0 on success.
     pub code: u32,
     /// Return value (if there's any) for each input message
-    pub data: Vec<MsgData>,
+    pub data: Vec<Any>,
     /// The output of the application's logger (raw string). May be non-deterministic.
     ///
     /// If code != 0, rawLog contains the error.
@@ -789,12 +789,8 @@ where
                 };
             }
         }
-        #[allow(deprecated)]
-        let data = data
-            .data
-            .into_iter()
-            .map(|item| MsgData::try_from(item).map_err(Error::from))
-            .collect::<Result<Vec<MsgData>>>()?;
+
+        let data = data.msg_responses;
 
         // TODO: Process, decrypt the logs!
         let logs = tx_response.logs;
@@ -1026,13 +1022,7 @@ pub trait TxDecoder {
         let mut data =
             <TxMsgDataProto as Message>::decode(hex::decode(tx_response.data)?.as_ref())?;
 
-        #[allow(deprecated)]
-        let data = data
-            .data
-            .into_iter()
-            .map(|item| MsgData::try_from(item).map_err(Error::from))
-            .collect::<Result<Vec<MsgData>>>()?;
-
+        let data = data.msg_responses;
         let logs = tx_response.logs;
 
         // TODO:
