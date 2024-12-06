@@ -56,6 +56,3 @@ web-sys = { version = "0.3.70", features = ["console"] }
 [[example]]
 name = "client"
 path = "examples/client.rs"
-
-[patch.crates-io]
-secretrs = { git = "https://github.com/kent-3/secret-rust", branch = "sdk-upgrade" }
