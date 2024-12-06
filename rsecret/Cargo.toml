@@ -25,14 +25,14 @@ x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 
 # blockchain
 secretrs = { version = "0.1.3" }
-ibc-proto = { version = "0.49.0", default-features = false }
+ibc-proto = { version = "0.51.1", default-features = false }
 bip39 = "2.0.0"
 
 # errors
 thiserror = "1.0.63"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ibc-proto = { version = "0.49.0" }
+ibc-proto = { version = "0.51.1" }
 tokio = { version = "1.39.3", features = ["time"] }
 tonic = { version = "0.12.2", features = ["tls", "tls-webpki-roots", "transport"] }
 
@@ -56,3 +56,6 @@ web-sys = { version = "0.3.70", features = ["console"] }
 [[example]]
 name = "client"
 path = "examples/client.rs"
+
+[patch.crates-io]
+secretrs = { git = "https://github.com/kent-3/secret-rust", branch = "sdk-upgrade" }
