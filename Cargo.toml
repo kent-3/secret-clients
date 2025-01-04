@@ -5,3 +5,7 @@ exclude = ["secret-rpc", "secret-grpc-gateway"]
 
 # [patch.crates-io]
 # secretrs = { path = "../secret-rust/secretrs" }
+
+[patch.crates-io]
+secret-sdk-proto = { git = "https://github.com/kent-3/secret-rust", branch = "sdk-upgrade" }
+secretrs = { git = "https://github.com/kent-3/secret-rust", branch = "sdk-upgrade" }

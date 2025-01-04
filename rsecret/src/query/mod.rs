@@ -26,7 +26,7 @@ pub mod ibc_interchain_accounts_controller;
 pub mod ibc_interchain_accounts_host;
 pub mod ibc_packet_forward; // TODO: module not in cosmos_sdk_proto
 pub mod ibc_transfer;
-pub mod mauth;
+// pub mod mauth;
 pub mod mint;
 pub mod node; // TODO: module not in cosmos_sdk_proto
 pub mod params;
@@ -54,7 +54,7 @@ use ibc_interchain_accounts_controller::IbcInterchainAccountsControllerQuerier;
 use ibc_interchain_accounts_host::IbcInterchainAccountsHostQuerier;
 // use ibc_packet_forward::IbcPacketForwardQuerier;
 use ibc_transfer::IbcTransferQuerier;
-use mauth::InterTxQuerier;
+// use mauth::InterTxQuerier;
 use mint::MintQuerier;
 // use node::NodeQuerier;
 use params::ParamsQuerier;
@@ -91,7 +91,7 @@ where
     pub ibc_interchain_accounts_host: IbcInterchainAccountsHostQuerier<T>,
     // pub ibc_packet_forward: IbcPacketForwardQuerier<T>,
     pub ibc_transfer: IbcTransferQuerier<T>,
-    pub mauth: InterTxQuerier<T>,
+    // pub mauth: InterTxQuerier<T>,
     pub mint: MintQuerier<T>,
     // pub node: NodeQuerier<T>,
     pub params: ParamsQuerier<T>,
@@ -171,7 +171,7 @@ impl<U: SecretUtils + Sync> Querier<::tonic::transport::Channel, U> {
             IbcInterchainAccountsControllerQuerier::new(channel.clone());
         let ibc_interchain_accounts_host = IbcInterchainAccountsHostQuerier::new(channel.clone());
         let ibc_transfer = IbcTransferQuerier::new(channel.clone());
-        let mauth = InterTxQuerier::new(channel.clone());
+        // let mauth = InterTxQuerier::new(channel.clone());
         let mint = MintQuerier::new(channel.clone());
         let params = ParamsQuerier::new(channel.clone());
         let registration = RegistrationQuerier::new(channel.clone());
@@ -197,7 +197,7 @@ impl<U: SecretUtils + Sync> Querier<::tonic::transport::Channel, U> {
             ibc_interchain_accounts_controller,
             ibc_interchain_accounts_host,
             ibc_transfer,
-            mauth,
+            // mauth,
             mint,
             params,
             registration,
@@ -248,7 +248,7 @@ impl<U: SecretUtils + Sync> Querier<::tonic_web_wasm_client::Client, U> {
             IbcInterchainAccountsControllerQuerier::new(client.clone());
         let ibc_interchain_accounts_host = IbcInterchainAccountsHostQuerier::new(client.clone());
         let ibc_transfer = IbcTransferQuerier::new(client.clone());
-        let mauth = InterTxQuerier::new(client.clone());
+        // let mauth = InterTxQuerier::new(client.clone());
         let mint = MintQuerier::new(client.clone());
         let params = ParamsQuerier::new(client.clone());
         let registration = RegistrationQuerier::new(client.clone());
@@ -274,7 +274,7 @@ impl<U: SecretUtils + Sync> Querier<::tonic_web_wasm_client::Client, U> {
             ibc_interchain_accounts_controller,
             ibc_interchain_accounts_host,
             ibc_transfer,
-            mauth,
+            // mauth,
             mint,
             params,
             registration,
