@@ -490,6 +490,24 @@ where
         todo!()
     }
 
+    pub async fn broadcast<S: Serialize + DeserializeOwned + Send + Sync, M: Msg + ToAmino<S>>(
+        &self,
+        messages: Vec<M>,
+        tx_options: TxOptions,
+    ) -> Result<TxResponse> {
+        let tx_bytes = self.prepare_and_sign(messages, tx_options.clone()).await?;
+
+        self.broadcast_tx(
+            tx_bytes,
+            tx_options.broadcast_timeout_ms,
+            tx_options.broadcast_check_interval_ms,
+            tx_options.broadcast_mode,
+            tx_options.wait_for_commit,
+            tx_options.ibc_txs_options,
+        )
+        .await
+    }
+
     // NOTE: Each BroadcastMode has different behavior and output.
     // BroadcastMode::Block (deprecated in v0.47)
     // - Waits for the tx to be committed to a block.
