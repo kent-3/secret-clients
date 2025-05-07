@@ -818,11 +818,13 @@ where
             let (metadata, response, _) = response.into_parts();
 
             let http_headers = metadata.into_headers();
-            let block_height = http_headers
-                .get("x-cosmos-block-height")
-                .and_then(|header| header.to_str().ok())
-                .and_then(|header_str| u32::from_str(header_str).ok())
-                .ok_or("Failed to retrieve and parse block height")?;
+            debug!("http_headers: {:?}", http_headers);
+
+            // let block_height = http_headers
+            //     .get("x-cosmos-block-height")
+            //     .and_then(|header| header.to_str().ok())
+            //     .and_then(|header_str| u32::from_str(header_str).ok())
+            //     .ok_or("Failed to retrieve and parse block height")?;
 
             let account: BaseAccount = response
                 .account
